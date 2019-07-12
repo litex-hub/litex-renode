@@ -81,9 +81,11 @@ def generate_ethmac(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
     buf = kwargs['buffer']()
+    phy = kwargs['phy']()
 
     result = """
 ethmac: Network.LiteX_Ethernet @ {{
+    {};
     {};
     {}
 }}
@@ -94,11 +96,21 @@ ethmac: Network.LiteX_Ethernet @ {{
            generate_sysbus_registration(int(buf['address'], 0),
                                         shadow_base,
                                         int(buf['size'], 0),
-                                        skip_braces=True, region='buffer'))
+                                        skip_braces=True, region='buffer'),
+           generate_sysbus_registration(int(phy['address'], 0),
+                                        shadow_base,
+                                        0x800,
+                                        skip_braces=True, region='phy'))
 
     if 'interrupt' in peripheral['constants']:
         result += '    -> cpu@{}\n'.format(
             peripheral['constants']['interrupt'])
+
+    result += """
+
+ethphy: Network.EthernetPhysicalLayer @ ethmac 0
+    VendorSpecific1: 0x4400 // MDIO status: 100Mbps + link up
+"""
 
     return result
 
@@ -254,15 +266,13 @@ def generate_repl():
         },
         'ethmac': {
             'handler': generate_ethmac,
-            'buffer': lambda: mem_regions['ethmac']
+            'buffer': lambda: mem_regions['ethmac'],
+            'phy': lambda: peripherals['ethphy']
         },
         'ddrphy': {
             'handler': generate_silencer
         },
         'sdram': {
-            'handler': generate_silencer
-        },
-        'ethphy': {
             'handler': generate_silencer
         },
         'spiflash': {
