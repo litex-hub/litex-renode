@@ -197,7 +197,7 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
     for constant, val in peripheral['constants'].items():
         if constant == 'interrupt':
             result += '    -> cpu@{}\n'.format(val)
-        else:
+        elif 'ignored_constants' not in kwargs or constant not in kwargs['ignored_constants']:
             result += '    {}: {}\n'.format(constant, val)
 
     if 'properties' in kwargs:
@@ -241,6 +241,38 @@ flash: SPI.Micron_MT25Q @ spi
     return result
 
 
+def generate_cas(peripheral, shadow_base, **kwargs):
+    result = generate_peripheral(peripheral, shadow_base, model='GPIOPort.LiteX_ControlAndStatus', ignored_constants=['leds_count', 'switches_count', 'buttons_count'])
+
+    leds_count = int(peripheral['constants']['leds_count'])
+    switches_count = int(peripheral['constants']['switches_count'])
+    buttons_count = int(peripheral['constants']['buttons_count'])
+
+    for i in range(leds_count):
+        result += """
+    {} -> led{}@0
+""".format(i, i)
+
+    for i in range(leds_count):
+        result += """
+led{}: Miscellaneous.LED @ cas {}
+""".format(i, i)
+
+    for i in range(switches_count):
+        result += """
+switch{}: Miscellaneous.Button @ cas {}
+    -> cas@{}
+""".format(i, i + 32, i + 32)
+
+    for i in range(buttons_count):
+        result += """
+button{}: Miscellaneous.Button @ cas {}
+    -> cas@{}
+""".format(i, i + 64, i + 64)
+
+    return result
+
+
 def generate_repl():
     """ Generates platform definition.
 
@@ -268,6 +300,9 @@ def generate_repl():
             'handler': generate_ethmac,
             'buffer': lambda: mem_regions['ethmac'],
             'phy': lambda: peripherals['ethphy']
+        },
+        'cas': {
+            'handler': generate_cas,
         },
         'ddrphy': {
             'handler': generate_silencer
