@@ -204,6 +204,10 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
         for prop, val in kwargs['properties'].items():
             result += '    {}: {}\n'.format(prop, val())
 
+    if 'interrupts' in kwargs:
+        for prop, val in kwargs['interrupts'].items():
+            result += '    {} -> {}\n'.format(prop, val())
+
     return result
 
 
