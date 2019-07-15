@@ -242,7 +242,8 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
 
-    flash_size = 0x2000000
+    xip_base = int(mem_regions['spiflash']['address'], 0)
+    flash_size = int(mem_regions['spiflash']['size'], 0)
 
     result = """
 spi: SPI.LiteX_SPI @ {{
@@ -252,7 +253,7 @@ spi: SPI.LiteX_SPI @ {{
 """.format(
         generate_sysbus_registration(int(peripheral['address'], 0),
                                      shadow_base, skip_braces=True),
-        generate_sysbus_registration(0xa0000000, shadow_base, size=flash_size,
+        generate_sysbus_registration(xip_base, shadow_base, size=flash_size,
                                      skip_braces=True, region='xip'))
 
     result += """
