@@ -189,7 +189,7 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
     """
 
     result = '\n{}: {} @ {}\n'.format(
-        peripheral['name'],
+        kwargs['name'] if 'name' in kwargs else peripheral['name'],
         kwargs['model'],
         generate_sysbus_registration(int(peripheral['address'], 0),
                                      shadow_base))
