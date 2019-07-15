@@ -154,7 +154,7 @@ sysbus:
 """.format(peripheral['address'], peripheral['name'])
 
 
-def generate_cpu():
+def generate_cpu(time_provider):
     """ Generates definition of a CPU.
 
     Returns:
@@ -163,9 +163,14 @@ def generate_cpu():
     kind = constants['config_cpu_type']['value']
 
     if kind == 'VEXRISCV':
-        return """
+        result = """
 cpu: CPU.VexRiscv @ sysbus
 """
+        if time_provider:
+            result += """
+    timeProvider: {}
+""".format(time_provider)
+        return result
     elif kind == 'PICORV32':
         return """
 cpu: CPU.PicoRV32 @ sysbus
@@ -308,6 +313,19 @@ def generate_repl():
         'cas': {
             'handler': generate_cas,
         },
+        'cpu': {
+            'name': 'cpu_timer',
+            'handler': generate_peripheral,
+            'model': 'Timers.LiteX_CPUTimer',
+            'properties': {
+                'frequency':
+                    lambda: constants['system_clock_frequency']['value']
+            },
+            'interrupts': {
+                # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
+                'IRQ': lambda: 'cpu@100'
+            }
+        },
         'ddrphy': {
             'handler': generate_silencer
         },
@@ -327,7 +345,7 @@ def generate_repl():
         if mem_region['name'] not in non_generated_mem_regions:
             result += generate_memory_region(mem_region, shadow_base)
 
-    result += generate_cpu()
+    result += generate_cpu('cpu_timer' if 'cpu' in peripherals else None)
 
     for name, peripheral in peripherals.items():
         if name not in name_to_handler:
