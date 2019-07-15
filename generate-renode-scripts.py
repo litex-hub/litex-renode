@@ -81,9 +81,11 @@ def generate_ethmac(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
     buf = kwargs['buffer']()
+    phy = kwargs['phy']()
 
     result = """
 ethmac: Network.LiteX_Ethernet @ {{
+    {};
     {};
     {}
 }}
@@ -94,11 +96,21 @@ ethmac: Network.LiteX_Ethernet @ {{
            generate_sysbus_registration(int(buf['address'], 0),
                                         shadow_base,
                                         int(buf['size'], 0),
-                                        skip_braces=True, region='buffer'))
+                                        skip_braces=True, region='buffer'),
+           generate_sysbus_registration(int(phy['address'], 0),
+                                        shadow_base,
+                                        0x800,
+                                        skip_braces=True, region='phy'))
 
     if 'interrupt' in peripheral['constants']:
         result += '    -> cpu@{}\n'.format(
             peripheral['constants']['interrupt'])
+
+    result += """
+
+ethphy: Network.EthernetPhysicalLayer @ ethmac 0
+    VendorSpecific1: 0x4400 // MDIO status: 100Mbps + link up
+"""
 
     return result
 
@@ -142,18 +154,36 @@ sysbus:
 """.format(peripheral['address'], peripheral['name'])
 
 
-def generate_cpu():
+def generate_cpu(time_provider):
     """ Generates definition of a CPU.
 
     Returns:
         string: repl definition of the CPU
     """
     kind = constants['config_cpu_type']['value']
+    if 'config_cpu_variant' in constants:
+        variant = constants['config_cpu_variant']['value']
+    else:
+        variant = None
 
     if kind == 'VEXRISCV':
-        return """
+        result = """
 cpu: CPU.VexRiscv @ sysbus
 """
+        if variant == 'LINUX':
+            result += """
+    cpuType: "rv32ima"
+    privilegeArchitecture: PrivilegeArchitecture.Priv1_10
+"""
+        else:
+            result += """
+    cpuType: "rv32im"
+"""
+        if time_provider:
+            result += """
+    timeProvider: {}
+""".format(time_provider)
+        return result
     elif kind == 'PICORV32':
         return """
 cpu: CPU.PicoRV32 @ sysbus
@@ -177,7 +207,7 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
     """
 
     result = '\n{}: {} @ {}\n'.format(
-        peripheral['name'],
+        kwargs['name'] if 'name' in kwargs else peripheral['name'],
         kwargs['model'],
         generate_sysbus_registration(int(peripheral['address'], 0),
                                      shadow_base))
@@ -185,12 +215,16 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
     for constant, val in peripheral['constants'].items():
         if constant == 'interrupt':
             result += '    -> cpu@{}\n'.format(val)
-        else:
+        elif 'ignored_constants' not in kwargs or constant not in kwargs['ignored_constants']:
             result += '    {}: {}\n'.format(constant, val)
 
     if 'properties' in kwargs:
         for prop, val in kwargs['properties'].items():
             result += '    {}: {}\n'.format(prop, val())
+
+    if 'interrupts' in kwargs:
+        for prop, val in kwargs['interrupts'].items():
+            result += '    {} -> {}\n'.format(prop, val())
 
     return result
 
@@ -208,7 +242,8 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
 
-    flash_size = 0x2000000
+    xip_base = int(mem_regions['spiflash']['address'], 0)
+    flash_size = int(mem_regions['spiflash']['size'], 0)
 
     result = """
 spi: SPI.LiteX_SPI @ {{
@@ -218,13 +253,45 @@ spi: SPI.LiteX_SPI @ {{
 """.format(
         generate_sysbus_registration(int(peripheral['address'], 0),
                                      shadow_base, skip_braces=True),
-        generate_sysbus_registration(0xa0000000, shadow_base, size=flash_size,
+        generate_sysbus_registration(xip_base, shadow_base, size=flash_size,
                                      skip_braces=True, region='xip'))
 
     result += """
 flash: SPI.Micron_MT25Q @ spi
     size: {}
 """.format(flash_size)
+
+    return result
+
+
+def generate_cas(peripheral, shadow_base, **kwargs):
+    result = generate_peripheral(peripheral, shadow_base, model='GPIOPort.LiteX_ControlAndStatus', ignored_constants=['leds_count', 'switches_count', 'buttons_count'])
+
+    leds_count = int(peripheral['constants']['leds_count'])
+    switches_count = int(peripheral['constants']['switches_count'])
+    buttons_count = int(peripheral['constants']['buttons_count'])
+
+    for i in range(leds_count):
+        result += """
+    {} -> led{}@0
+""".format(i, i)
+
+    for i in range(leds_count):
+        result += """
+led{}: Miscellaneous.LED @ cas {}
+""".format(i, i)
+
+    for i in range(switches_count):
+        result += """
+switch{}: Miscellaneous.Button @ cas {}
+    -> cas@{}
+""".format(i, i + 32, i + 32)
+
+    for i in range(buttons_count):
+        result += """
+button{}: Miscellaneous.Button @ cas {}
+    -> cas@{}
+""".format(i, i + 64, i + 64)
 
     return result
 
@@ -254,15 +321,29 @@ def generate_repl():
         },
         'ethmac': {
             'handler': generate_ethmac,
-            'buffer': lambda: mem_regions['ethmac']
+            'buffer': lambda: mem_regions['ethmac'],
+            'phy': lambda: peripherals['ethphy']
+        },
+        'cas': {
+            'handler': generate_cas,
+        },
+        'cpu': {
+            'name': 'cpu_timer',
+            'handler': generate_peripheral,
+            'model': 'Timers.LiteX_CPUTimer',
+            'properties': {
+                'frequency':
+                    lambda: constants['system_clock_frequency']['value']
+            },
+            'interrupts': {
+                # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
+                'IRQ': lambda: 'cpu@100'
+            }
         },
         'ddrphy': {
             'handler': generate_silencer
         },
         'sdram': {
-            'handler': generate_silencer
-        },
-        'ethphy': {
             'handler': generate_silencer
         },
         'spiflash': {
@@ -278,7 +359,7 @@ def generate_repl():
         if mem_region['name'] not in non_generated_mem_regions:
             result += generate_memory_region(mem_region, shadow_base)
 
-    result += generate_cpu()
+    result += generate_cpu('cpu_timer' if 'cpu' in peripherals else None)
 
     for name, peripheral in peripherals.items():
         if name not in name_to_handler:
