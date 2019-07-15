@@ -161,10 +161,23 @@ def generate_cpu(time_provider):
         string: repl definition of the CPU
     """
     kind = constants['config_cpu_type']['value']
+    if 'config_cpu_variant' in constants:
+        variant = constants['config_cpu_variant']['value']
+    else:
+        variant = None
 
     if kind == 'VEXRISCV':
         result = """
 cpu: CPU.VexRiscv @ sysbus
+"""
+        if variant == 'LINUX':
+            result += """
+    cpuType: "rv32ima"
+    privilegeArchitecture: PrivilegeArchitecture.Priv1_10
+"""
+        else:
+            result += """
+    cpuType: "rv32im"
 """
         if time_provider:
             result += """
