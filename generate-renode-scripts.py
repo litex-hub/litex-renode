@@ -296,6 +296,16 @@ button{}: Miscellaneous.Button @ cas {}
     return result
 
 
+def get_clock_frequency():
+    """
+    Returns:
+        int: system clock frequency
+    """
+    # in different LiteX versions this property
+    # has different names
+    return constants['config_clock_frequency' if 'config_clock_frequency' in constants else 'system_clock_frequency']['value']
+
+
 def generate_repl():
     """ Generates platform definition.
 
@@ -316,7 +326,7 @@ def generate_repl():
             'model': 'Timers.LiteX_Timer',
             'properties': {
                 'frequency':
-                    lambda: constants['system_clock_frequency']['value']
+                    lambda: get_clock_frequency()
             }
         },
         'ethmac': {
@@ -333,7 +343,7 @@ def generate_repl():
             'model': 'Timers.LiteX_CPUTimer',
             'properties': {
                 'frequency':
-                    lambda: constants['system_clock_frequency']['value']
+                    lambda: get_clock_frequency()
             },
             'interrupts': {
                 # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
