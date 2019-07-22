@@ -13,9 +13,9 @@ import csv
 import zlib
 import argparse
 
-# this memory region is defined and handled
-# directly by LiteEth model in Renode
-non_generated_mem_regions = ['ethmac', 'spiflash']
+# those memory regions are handled in a special way
+# and should not be generated automatically
+non_generated_mem_regions = ['ethmac', 'spiflash', 'csr']
 
 mem_regions = {}
 peripherals = {}
