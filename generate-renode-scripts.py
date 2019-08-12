@@ -463,7 +463,7 @@ def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware
 using sysbus
 mach create "litex-{}"
 machine LoadPlatformDescription @{}
-cpu StartGdbServer 10001
+machine StartGdbServer 10001
 showAnalyzer sysbus.uart
 showAnalyzer sysbus.uart Antmicro.Renode.Analyzers.LoggingUartAnalyzer
 """.format(cpu_type, repl_file)
