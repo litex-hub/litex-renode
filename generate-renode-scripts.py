@@ -246,7 +246,7 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
     flash_size = int(mem_regions['spiflash']['size'], 0)
 
     result = """
-spi: SPI.LiteX_SPI @ {{
+spi: SPI.LiteX_SPI_Flash @ {{
     {};
     {}
 }}
