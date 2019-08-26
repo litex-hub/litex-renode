@@ -9,20 +9,18 @@ necessary to emulate the given configuration of the LiteX SoC.
 """
 
 import sys
-import csv
 import zlib
 import argparse
 import collections
 import json
 
+from litex.configuration import Configuration
+
 # those memory regions are handled in a special way
 # and should not be generated automatically
 non_generated_mem_regions = ['ethmac', 'spiflash', 'csr']
 
-mem_regions = {}
-peripherals = {}
-registers = {}
-constants = {}
+configuration = None
 
 
 def generate_sysbus_registration(address, shadow_base, size=None,
@@ -163,9 +161,9 @@ def generate_cpu(time_provider):
     Returns:
         string: repl definition of the CPU
     """
-    kind = constants['config_cpu_type']['value']
-    if 'config_cpu_variant' in constants:
-        variant = constants['config_cpu_variant']['value']
+    kind = configuration.constants['config_cpu_type']['value']
+    if 'config_cpu_variant' in configuration.constants:
+        variant = configuration.constants['config_cpu_variant']['value']
     else:
         variant = None
 
@@ -245,8 +243,8 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
 
-    xip_base = int(mem_regions['spiflash']['address'], 0)
-    flash_size = int(mem_regions['spiflash']['size'], 0)
+    xip_base = int(configuration.mem_regions['spiflash']['address'], 0)
+    flash_size = int(configuration.mem_regions['spiflash']['size'], 0)
 
     result = """
 spi: SPI.LiteX_SPI_Flash @ {{
@@ -306,7 +304,7 @@ def get_clock_frequency():
     """
     # in different LiteX versions this property
     # has different names
-    return constants['config_clock_frequency' if 'config_clock_frequency' in constants else 'system_clock_frequency']['value']
+    return configuration.constants['config_clock_frequency' if 'config_clock_frequency' in configuration.constants else 'system_clock_frequency']['value']
 
 
 def generate_repl():
@@ -334,8 +332,8 @@ def generate_repl():
         },
         'ethmac': {
             'handler': generate_ethmac,
-            'buffer': lambda: mem_regions['ethmac'],
-            'phy': lambda: peripherals['ethphy']
+            'buffer': lambda: configuration.mem_regions['ethmac'],
+            'phy': lambda: configuration.peripherals['ethphy']
         },
         'cas': {
             'handler': generate_cas,
@@ -364,17 +362,17 @@ def generate_repl():
         }
     }
 
-    shadow_base = (constants['shadow_base']['value']
-                   if 'shadow_base' in constants
+    shadow_base = (configuration.constants['shadow_base']['value']
+                   if 'shadow_base' in configuration.constants
                    else None)
 
-    for mem_region in mem_regions.values():
+    for mem_region in configuration.mem_regions.values():
         if mem_region['name'] not in non_generated_mem_regions:
             result += generate_memory_region(mem_region, shadow_base)
 
-    result += generate_cpu('cpu_timer' if 'cpu' in peripherals else None)
+    result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
 
-    for name, peripheral in peripherals.items():
+    for name, peripheral in configuration.peripherals.items():
         if name not in name_to_handler:
             print('Skipping unsupported peripheral {} at {}'
                   .format(name, peripheral['address']))
@@ -384,51 +382,6 @@ def generate_repl():
         result += h['handler'](peripheral, shadow_base, **h)
 
     return result
-
-
-def parse_csv(data):
-    """ Parses LiteX CSV file.
-
-    Args:
-        data (list): list of CSV file lines
-    """
-
-    # scan for CSRs first, so it's easier to resolve CSR-related constants
-    # in the second pass
-    for _type, _name, _address, _, __ in data:
-        if _type == 'csr_base':
-            peripherals[_name] = {'name': _name,
-                                  'address': _address,
-                                  'constants': {}}
-
-    for _type, _name, _val, _val2, _ in data:
-        if _type == 'csr_base':
-            # CSRs have already been parsed
-            pass
-        elif _type == 'csr_register':
-            # csr_register,info_dna_id,0xe0006800,8,ro
-            registers[_name] = {'name': _name,
-                               'address': _val,
-                               'size': _val2,
-                               'r': _
-                               }
-        elif _type == 'constant':
-            found = False
-            for _csr_name in peripherals:
-                if _name.startswith(_csr_name):
-                    local_name = _name[len(_csr_name) + 1:]
-                    peripherals[_csr_name]['constants'][local_name] = _val
-                    found = True
-                    break
-            if not found:
-                # if it's not a CSR-related constant, it must be a global one
-                constants[_name] = {'name': _name, 'value': _val}
-        elif _type == 'memory_region':
-            mem_regions[_name] = {'name': _name,
-                                  'address': _val,
-                                  'size': _val2}
-        else:
-            print('Skipping unexpected CSV entry: {} {}'.format(_type, _name))
 
 
 def calculate_offset(address, base, shadow_base=0):
@@ -464,7 +417,7 @@ def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware
         string: platform defition containing all supported peripherals
                 and memory regions
     """
-    cpu_type = constants['config_cpu_type']['value']
+    cpu_type = configuration.constants['config_cpu_type']['value']
 
     result = """
 using sysbus
@@ -475,7 +428,7 @@ showAnalyzer sysbus.uart
 showAnalyzer sysbus.uart Antmicro.Renode.Analyzers.LoggingUartAnalyzer
 """.format(cpu_type, repl_file)
 
-    rom_base = mem_regions['rom']['address']
+    rom_base = configuration.mem_regions['rom']['address']
     if rom_base is not None and bios_binary:
         # load LiteX BIOS to ROM
         result += """
@@ -491,16 +444,16 @@ emulation CreateTap "{}" "tap"
 connector Connect ethmac switch
 connector Connect host.tap switch
 """.format(host_tap_interface)
-    elif firmware_binary and 'flash_boot_address' in constants:
+    elif firmware_binary and 'flash_boot_address' in configuration.constants:
         # load firmware binary to spiflash to boot from there
 
         firmware_data = open(firmware_binary, 'rb').read()
         crc32 = zlib.crc32(firmware_data)
 
-        flash_boot_address = int(constants['flash_boot_address']['value'], 0)
-        flash_base = int(mem_regions['spiflash']['address'], 0)
-        shadow_base = (int(constants['shadow_base']['value'], 0)
-                       if 'shadow_base' in constants
+        flash_boot_address = int(configuration.constants['flash_boot_address']['value'], 0)
+        flash_base = int(configuration.mem_regions['spiflash']['address'], 0)
+        shadow_base = (int(configuration.constants['shadow_base']['value'], 0)
+                       if 'shadow_base' in configuration.constants
                        else 0)
         firmware_image_offset = calculate_offset(flash_boot_address, flash_base, shadow_base)
 
@@ -539,12 +492,6 @@ def print_or_save(filepath, lines):
             f.write(lines)
 
 
-def remove_comments(data):
-    for line in data:
-        if not line.lstrip().startswith('#'):
-            yield line
-
-
 def mk_obj():
     """
     Makes an object of dicts and lists from the registers var
@@ -561,11 +508,11 @@ def mk_obj():
         d[path[-1]] = value
 
     the_dict = make_dict()
-    for register in registers:
+    for register in configuration.registers:
         set_path(
                 the_dict,
                 register.split('_'),
-                registers[register],
+                configuration.registers[register],
                 )
 
     return the_dict
@@ -638,11 +585,12 @@ def parse_args():
 
     return args
 
+
 def main():
+    global configuration
     args = parse_args()
 
-    with open(args.conf_file) as csvfile:
-        parse_csv(list(csv.reader(remove_comments(csvfile))))
+    configuration = Configuration(args.conf_file)
 
     if args.repl:
         print_or_save(args.repl, generate_repl())
