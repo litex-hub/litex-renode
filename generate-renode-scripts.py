@@ -159,9 +159,9 @@ def generate_cpu(time_provider):
     Returns:
         string: repl definition of the CPU
     """
-    kind = configuration.constants['config_cpu_type']['value']
+    kind = configuration.constants['config_cpu_type']['value'].upper()
     if 'config_cpu_variant' in configuration.constants:
-        variant = configuration.constants['config_cpu_variant']['value']
+        variant = configuration.constants['config_cpu_variant']['value'].upper()
     else:
         variant = None
 
