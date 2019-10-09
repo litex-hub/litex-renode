@@ -246,19 +246,21 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
 
     result = """
 spi: SPI.LiteX_SPI_Flash @ {{
-    {};
     {}
 }}
+
+flash_mem: Memory.MappedMemory @ {{
+        {}
+    }}
+    size: {}
+
+flash: SPI.Micron_MT25Q @ spi
+    underlyingMemory: flash_mem
 """.format(
         generate_sysbus_registration(int(peripheral['address'], 0),
                                      shadow_base, skip_braces=True),
-        generate_sysbus_registration(xip_base, shadow_base, size=flash_size,
-                                     skip_braces=True, region='xip'))
-
-    result += """
-flash: SPI.Micron_MT25Q @ spi
-    size: {}
-""".format(flash_size)
+        generate_sysbus_registration(xip_base, shadow_base, skip_braces=True),
+        flash_size)
 
     return result
 
@@ -382,23 +384,6 @@ def generate_repl():
     return result
 
 
-def calculate_offset(address, base, shadow_base=0):
-    """ Calculates an offset between two addresses, taking optional
-        shadow base into consideration.
-
-    Args:
-        address (int): first address
-        base (int): second address
-        shadow_base (int): mask of shadow address that is applied to `base`
-
-    Returns:
-        The minimal non-negative offset between `address` and `base`
-        calculated with and without applying the `shadow_base`.
-    """
-
-    return min(a - base for a in (address, (address | shadow_base), (address & ~shadow_base)) if a >= base)
-
-
 def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware_binary=None):
     """ Generates platform definition.
 
@@ -449,27 +434,10 @@ connector Connect host.tap switch
         crc32 = zlib.crc32(firmware_data)
 
         flash_boot_address = int(configuration.constants['flash_boot_address']['value'], 0)
-        flash_base = int(configuration.mem_regions['spiflash']['address'], 0)
-        shadow_base = (int(configuration.constants['shadow_base']['value'], 0)
-                       if 'shadow_base' in configuration.constants
-                       else 0)
-        firmware_image_offset = calculate_offset(flash_boot_address, flash_base, shadow_base)
 
-        # this is a new file with padding, length & CRC prepended
-        firmware_binary_crc = firmware_binary + '.with_crc'
-        with open(firmware_binary_crc, 'wb') as with_crc:
-            # pad the file with 0's at the beginning - the
-            # firmware image might not be located at the
-            # beginning of the flash
-            with_crc.write((0).to_bytes(firmware_image_offset, byteorder='little'))
-            # 4 bytes: the length of the image
-            with_crc.write(len(firmware_data).to_bytes(4, byteorder='little'))
-            # 4 bytes: the CRC of the image
-            with_crc.write(crc32.to_bytes(4, byteorder='little'))
-            # the image itself
-            with_crc.write(firmware_data)
-
-        result += 'spi.flash UseDataFromFile @{}\n'.format(firmware_binary_crc)
+        result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address), hex(len(firmware_data)))
+        result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address + 4), hex(crc32))
+        result += 'sysbus LoadBinary @{} {}\n'.format(firmware_binary, hex(flash_boot_address + 8))
 
     result += 'start'
     return result
