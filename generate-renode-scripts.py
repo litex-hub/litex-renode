@@ -374,8 +374,8 @@ def generate_repl():
 
     for name, peripheral in configuration.peripherals.items():
         if name not in name_to_handler:
-            print('Skipping unsupported peripheral {} at {}'
-                  .format(name, peripheral['address']))
+            print('Skipping unsupported peripheral `{}` at {}'
+                  .format(name, hex(peripheral['address'])))
             continue
 
         h = name_to_handler[name]
