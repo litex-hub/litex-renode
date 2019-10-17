@@ -131,7 +131,7 @@ def generate_memory_region(region_descriptor, shadow_base):
 """.format(region_descriptor['name'],
            generate_sysbus_registration(int(region_descriptor['address'], 0),
                                         shadow_base),
-           region_descriptor['size'])
+           hex(size))
 
 
 def generate_silencer(peripheral, shadow_base, **kwargs):
@@ -260,7 +260,7 @@ flash: SPI.Micron_MT25Q @ spi
         generate_sysbus_registration(int(peripheral['address'], 0),
                                      shadow_base, skip_braces=True),
         generate_sysbus_registration(xip_base, shadow_base, skip_braces=True),
-        flash_size)
+        hex(flash_size))
 
     return result
 
