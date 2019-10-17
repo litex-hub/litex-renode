@@ -79,6 +79,9 @@ def generate_ethmac(peripheral, **kwargs):
     """
     buf = kwargs['buffer']()
     phy = kwargs['phy']()
+
+    # FIXME: Get litex to generate CSR region size into output information
+    # currently only a base address is present
     phy['size'] = 0x800
 
     result = """
@@ -336,9 +339,12 @@ def generate_repl():
         }
     }
 
-    for mem_region in configuration.mem_regions.values():
-        if mem_region['name'] not in non_generated_mem_regions:
-            result += generate_memory_region(mem_region)
+    # RISC-V CPU in Renode requires memory region size
+    # to be a multiple of 4KB - this is a known limitation
+    # (not a bug) and there are no plans to handle smaller
+    # memory regions for now
+    for mem_region in filter_memory_regions(list(configuration.mem_regions.values()), alignment=0x1000):
+        result += generate_memory_region(mem_region)
 
     result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
 
@@ -352,6 +358,39 @@ def generate_repl():
         result += h['handler'](peripheral, **h)
 
     return result
+
+
+def filter_memory_regions(raw_regions, alignment=None):
+    """ Filters memory regions skipping those from `non_generated_mem_regions`
+        list and verifying if they have proper size and do not overlap.
+
+        Args:
+            raw_regions (list): list of memory regions parsed from
+                                the configuration file
+            alignment (int or None): memory size boundary
+
+        Returns:
+            list: reduced, sorted list of memory regions to be generated
+                  in a repl file
+    """
+    previous_region = None
+
+    raw_regions.sort(key=lambda x: x['address'])
+    for r in raw_regions:
+        if alignment is not None and r['size'] % alignment != 0:
+            print('Error: `{}` memory region size ({}) is not aligned to {}'.format(r['name'], hex(r['size']), hex(alignment)))
+            sys.exit(1)
+
+        if previous_region is not None and (previous_region['address'] + previous_region['size']) > (r['address'] + r['size']):
+            print("Error: detected overlaping memory regions: `{}` and `{}`".format(r['name'], previous_region['name']))
+            sys.exit(1)
+
+        if r['name'] in non_generated_mem_regions:
+            print('Skipping pre-defined memory region: {}'.format(r['name']))
+            continue
+
+        previous_region = r
+        yield r
 
 
 def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware_binary=None):
