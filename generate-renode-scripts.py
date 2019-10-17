@@ -24,7 +24,7 @@ configuration = None
 def generate_sysbus_registration(address, shadow_base, size=None,
                                  skip_braces=False, region=None):
     """ Generates system bus registration information
-    consisting of base aaddress and optional shadow
+    consisting of a base address and an optional shadow
     address.
 
     Args:
