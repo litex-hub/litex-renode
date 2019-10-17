@@ -16,7 +16,7 @@ from litex.configuration import Configuration
 
 # those memory regions are handled in a special way
 # and should not be generated automatically
-non_generated_mem_regions = ['ethmac', 'spiflash', 'csr']
+non_generated_mem_regions = ['ethmac', 'csr']
 
 configuration = None
 
@@ -241,27 +241,16 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
 
-    xip_base = int(configuration.mem_regions['spiflash']['address'], 0)
-    flash_size = int(configuration.mem_regions['spiflash']['size'], 0)
-
     result = """
 spi: SPI.LiteX_SPI_Flash @ {{
     {}
 }}
 
-flash_mem: Memory.MappedMemory @ {{
-        {}
-    }}
-    size: {}
-
-flash: SPI.Micron_MT25Q @ spi
-    underlyingMemory: flash_mem
+mt25q: SPI.Micron_MT25Q @ spi
+    underlyingMemory: spiflash
 """.format(
         generate_sysbus_registration(int(peripheral['address'], 0),
-                                     shadow_base, skip_braces=True),
-        generate_sysbus_registration(xip_base, shadow_base, skip_braces=True),
-        hex(flash_size))
-
+                                     shadow_base, skip_braces=True))
     return result
 
 
