@@ -9,6 +9,7 @@ exported in 'csr.csv' file.
 """
 
 import csv
+import itertools
 
 
 class Configuration(object):
@@ -21,6 +22,7 @@ class Configuration(object):
 
         with open(conf_file) as csvfile:
             self._parse_csv(list(csv.reader(Configuration._remove_comments(csvfile))))
+            self._normalize_addresses()
 
     @staticmethod
     def _remove_comments(data):
@@ -40,7 +42,7 @@ class Configuration(object):
         for _type, _name, _address, _, __ in data:
             if _type == 'csr_base':
                 self.peripherals[_name] = {'name': _name,
-                                           'address': _address,
+                                           'address': int(_address, 0),
                                            'constants': {}}
 
         for _type, _name, _val, _val2, _val3 in data:
@@ -50,8 +52,8 @@ class Configuration(object):
             elif _type == 'csr_register':
                 # csr_register,info_dna_id,0xe0006800,8,ro
                 self.registers[_name] = {'name': _name,
-                                         'address': _val,
-                                         'size': _val2,
+                                         'address': int(_val, 0),
+                                         'size': int(_val2, 0),
                                          'r': _val3}
             elif _type == 'constant':
                 found = False
@@ -66,7 +68,20 @@ class Configuration(object):
                     self.constants[_name] = {'name': _name, 'value': _val}
             elif _type == 'memory_region':
                 self.mem_regions[_name] = {'name': _name,
-                                           'address': _val,
-                                           'size': _val2}
+                                           'address': int(_val, 0),
+                                           'size': int(_val2, 0)}
             else:
                 print('Skipping unexpected CSV entry: {} {}'.format(_type, _name))
+
+    def _normalize_addresses(self):
+        shadow_base = (int(self.constants['shadow_base']['value'], 0)
+                       if 'shadow_base' in self.constants
+                       else None)
+
+        for r in itertools.chain(self.mem_regions.values(), self.registers.values(), self.peripherals.values()):
+            if shadow_base is None:
+                r['shadowed_address'] = None
+            else:
+                r['shadowed_address'] = r['address'] | shadow_base
+                if r['shadowed_address'] == r['address']:
+                    r['address'] &= ~shadow_base
