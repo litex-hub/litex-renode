@@ -16,26 +16,26 @@ from litex.configuration import Configuration
 
 # those memory regions are handled in a special way
 # and should not be generated automatically
-non_generated_mem_regions = ['ethmac', 'spiflash', 'csr']
+non_generated_mem_regions = ['ethmac', 'csr']
 
 configuration = None
 
 
-def generate_sysbus_registration(address, shadow_base, size=None,
-                                 skip_braces=False, region=None):
+def generate_sysbus_registration(descriptor,
+                                 skip_braces=False, region=None, skip_size=False):
     """ Generates system bus registration information
-    consisting of base aaddress and optional shadow
+    consisting of a base address and an optional shadow
     address.
 
     Args:
-        address (int): peripheral's base address
-        shadow_base (int or None): shadow base address
-        size (int or None): peripheral's size, if None the value provided
-                            by the peripheral in runtime is taken
+        descriptor (dict): dictionary containing 'address',
+                          'shadowed_address' (might be None) and
+                          optionally 'size' fields
         skip_braces (bool): determines if the registration info should
                             be put in braces
         region (str or None): name of the region, if None the default
                               one is assumed
+        skip_size (bool): if set to true do not set size
 
     Returns:
         string: registration information
@@ -50,12 +50,11 @@ def generate_sysbus_registration(address, shadow_base, size=None,
             return "sysbus <{}, +{}>".format(hex(address), hex(size))
         return "sysbus {}".format(hex(address))
 
-    if shadow_base:
-        shadowed_address = address | int(shadow_base, 0)
+    address = descriptor['address']
+    shadowed_address = descriptor['shadowed_address']
+    size = descriptor['size'] if 'size' in descriptor and not skip_size else None
 
-        if shadowed_address == address:
-            address &= ~int(shadow_base, 0)
-
+    if shadowed_address:
         result = "{}; {}".format(
             generate_registration_entry(address, size, region),
             generate_registration_entry(shadowed_address, size, region))
@@ -68,12 +67,11 @@ def generate_sysbus_registration(address, shadow_base, size=None,
     return result
 
 
-def generate_ethmac(peripheral, shadow_base, **kwargs):
+def generate_ethmac(peripheral, **kwargs):
     """ Generates definition of 'ethmac' peripheral.
 
     Args:
         peripheral (dict): peripheral description
-        shadow_base (int or None): shadow base address
         kwargs (dict): additional parameters, including 'buffer'
 
     Returns:
@@ -82,23 +80,21 @@ def generate_ethmac(peripheral, shadow_base, **kwargs):
     buf = kwargs['buffer']()
     phy = kwargs['phy']()
 
+    # FIXME: Get litex to generate CSR region size into output information
+    # currently only a base address is present
+    phy['size'] = 0x800
+
     result = """
 ethmac: Network.LiteX_Ethernet @ {{
     {};
     {};
     {}
 }}
-""".format(generate_sysbus_registration(int(peripheral['address'], 0),
-                                        shadow_base,
-                                        0x100,
+""".format(generate_sysbus_registration(peripheral,
                                         skip_braces=True),
-           generate_sysbus_registration(int(buf['address'], 0),
-                                        shadow_base,
-                                        int(buf['size'], 0),
+           generate_sysbus_registration(buf,
                                         skip_braces=True, region='buffer'),
-           generate_sysbus_registration(int(phy['address'], 0),
-                                        shadow_base,
-                                        0x800,
+           generate_sysbus_registration(phy,
                                         skip_braces=True, region='phy'))
 
     if 'interrupt' in peripheral['constants']:
@@ -114,12 +110,11 @@ ethphy: Network.EthernetPhysicalLayer @ ethmac 0
     return result
 
 
-def generate_memory_region(region_descriptor, shadow_base):
+def generate_memory_region(region_descriptor):
     """ Generates definition of memory region.
 
     Args:
         region_descriptor (dict): memory region description
-        shadow_base (int or None): shadow base address
 
     Returns:
         string: repl definition of the memory region
@@ -129,18 +124,15 @@ def generate_memory_region(region_descriptor, shadow_base):
 {}: Memory.MappedMemory @ {}
     size: {}
 """.format(region_descriptor['name'],
-           generate_sysbus_registration(int(region_descriptor['address'], 0),
-                                        shadow_base),
-           region_descriptor['size'])
+           generate_sysbus_registration(region_descriptor, skip_size=True),
+           hex(region_descriptor['size']))
 
 
-def generate_silencer(peripheral, shadow_base, **kwargs):
+def generate_silencer(peripheral, **kwargs):
     """ Silences access to a memory region.
 
     Args:
         peripheral (dict): peripheral description
-        shadow_base (int or None): unused, just for compatibility with other
-                                   functions
         kwargs (dict): additional parameters, not used
 
     Returns:
@@ -192,12 +184,11 @@ cpu: CPU.PicoRV32 @ sysbus
         raise Exception('Unsupported cpu type: {}'.format(kind))
 
 
-def generate_peripheral(peripheral, shadow_base, **kwargs):
+def generate_peripheral(peripheral, **kwargs):
     """ Generates definition of a peripheral.
 
     Args:
         peripheral (dict): peripheral description
-        shadow_base (int or None): shadow base address
         kwargs (dict): additional parameterss, including
                        'model' and 'properties'
 
@@ -208,8 +199,7 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
     result = '\n{}: {} @ {}\n'.format(
         kwargs['name'] if 'name' in kwargs else peripheral['name'],
         kwargs['model'],
-        generate_sysbus_registration(int(peripheral['address'], 0),
-                                     shadow_base))
+        generate_sysbus_registration(peripheral))
 
     for constant, val in peripheral['constants'].items():
         if constant == 'interrupt':
@@ -228,12 +218,11 @@ def generate_peripheral(peripheral, shadow_base, **kwargs):
     return result
 
 
-def generate_spiflash(peripheral, shadow_base, **kwargs):
+def generate_spiflash(peripheral, **kwargs):
     """ Generates definition of an SPI controller with attached flash memory.
 
     Args:
         peripheral (dict): peripheral description
-        shadow_base (int or None): shadow base address
         kwargs (dict): additional parameterss, including
                        'model' and 'properties'
 
@@ -241,32 +230,20 @@ def generate_spiflash(peripheral, shadow_base, **kwargs):
         string: repl definition of the peripheral
     """
 
-    xip_base = int(configuration.mem_regions['spiflash']['address'], 0)
-    flash_size = int(configuration.mem_regions['spiflash']['size'], 0)
-
     result = """
 spi: SPI.LiteX_SPI_Flash @ {{
     {}
 }}
 
-flash_mem: Memory.MappedMemory @ {{
-        {}
-    }}
-    size: {}
-
-flash: SPI.Micron_MT25Q @ spi
-    underlyingMemory: flash_mem
+mt25q: SPI.Micron_MT25Q @ spi
+    underlyingMemory: spiflash
 """.format(
-        generate_sysbus_registration(int(peripheral['address'], 0),
-                                     shadow_base, skip_braces=True),
-        generate_sysbus_registration(xip_base, shadow_base, skip_braces=True),
-        flash_size)
-
+        generate_sysbus_registration(peripheral, skip_braces=True))
     return result
 
 
-def generate_cas(peripheral, shadow_base, **kwargs):
-    result = generate_peripheral(peripheral, shadow_base, model='GPIOPort.LiteX_ControlAndStatus', ignored_constants=['leds_count', 'switches_count', 'buttons_count'])
+def generate_cas(peripheral, **kwargs):
+    result = generate_peripheral(peripheral, model='GPIOPort.LiteX_ControlAndStatus', ignored_constants=['leds_count', 'switches_count', 'buttons_count'])
 
     leds_count = int(peripheral['constants']['leds_count'])
     switches_count = int(peripheral['constants']['switches_count'])
@@ -362,26 +339,58 @@ def generate_repl():
         }
     }
 
-    shadow_base = (configuration.constants['shadow_base']['value']
-                   if 'shadow_base' in configuration.constants
-                   else None)
-
-    for mem_region in configuration.mem_regions.values():
-        if mem_region['name'] not in non_generated_mem_regions:
-            result += generate_memory_region(mem_region, shadow_base)
+    # RISC-V CPU in Renode requires memory region size
+    # to be a multiple of 4KB - this is a known limitation
+    # (not a bug) and there are no plans to handle smaller
+    # memory regions for now
+    for mem_region in filter_memory_regions(list(configuration.mem_regions.values()), alignment=0x1000):
+        result += generate_memory_region(mem_region)
 
     result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
 
     for name, peripheral in configuration.peripherals.items():
         if name not in name_to_handler:
-            print('Skipping unsupported peripheral {} at {}'
-                  .format(name, peripheral['address']))
+            print('Skipping unsupported peripheral `{}` at {}'
+                  .format(name, hex(peripheral['address'])))
             continue
 
         h = name_to_handler[name]
-        result += h['handler'](peripheral, shadow_base, **h)
+        result += h['handler'](peripheral, **h)
 
     return result
+
+
+def filter_memory_regions(raw_regions, alignment=None):
+    """ Filters memory regions skipping those from `non_generated_mem_regions`
+        list and verifying if they have proper size and do not overlap.
+
+        Args:
+            raw_regions (list): list of memory regions parsed from
+                                the configuration file
+            alignment (int or None): memory size boundary
+
+        Returns:
+            list: reduced, sorted list of memory regions to be generated
+                  in a repl file
+    """
+    previous_region = None
+
+    raw_regions.sort(key=lambda x: x['address'])
+    for r in raw_regions:
+        if alignment is not None and r['size'] % alignment != 0:
+            print('Error: `{}` memory region size ({}) is not aligned to {}'.format(r['name'], hex(r['size']), hex(alignment)))
+            sys.exit(1)
+
+        if previous_region is not None and (previous_region['address'] + previous_region['size']) > (r['address'] + r['size']):
+            print("Error: detected overlaping memory regions: `{}` and `{}`".format(r['name'], previous_region['name']))
+            sys.exit(1)
+
+        if r['name'] in non_generated_mem_regions:
+            print('Skipping pre-defined memory region: {}'.format(r['name']))
+            continue
+
+        previous_region = r
+        yield r
 
 
 def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware_binary=None):
