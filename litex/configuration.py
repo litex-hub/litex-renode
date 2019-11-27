@@ -69,7 +69,8 @@ class Configuration(object):
             elif _type == 'memory_region':
                 self.mem_regions[_name] = {'name': _name,
                                            'address': int(_val, 0),
-                                           'size': int(_val2, 0)}
+                                           'size': int(_val2, 0),
+                                           'type': _val3}
             else:
                 print('Skipping unexpected CSV entry: {} {}'.format(_type, _name))
 
