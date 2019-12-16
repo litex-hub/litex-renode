@@ -22,6 +22,9 @@ def mk_obj():
         for key in path[:-1]:
             d = d[key]
         d[path[-1]] = value
+        # add a placeholder for where the register's value
+        # (other keys are metadata about this value)
+        d[path[-1]]['value'] = 0
 
     the_dict = make_dict()
     for register in configuration.registers:
