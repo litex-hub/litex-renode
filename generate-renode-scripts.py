@@ -453,7 +453,6 @@ connector Connect host.tap switch
         result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address + 4), hex(crc32))
         result += 'sysbus LoadBinary @{} {}\n'.format(firmware_binary, hex(flash_boot_address + 8))
 
-    result += 'start'
     return result
 
 
