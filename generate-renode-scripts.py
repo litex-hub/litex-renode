@@ -398,7 +398,7 @@ def filter_memory_regions(raw_regions, alignment=None):
         yield r
 
 
-def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware_binary=None):
+def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, flash_binaries={}):
     """ Generates platform definition.
 
     Args:
@@ -407,8 +407,8 @@ def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, firmware
                                      or None if no network should be configured
         bios_binary (string): path to the binary file of LiteX BIOS or None
                               if it should not be loaded into ROM
-        firmware_binary (string): path to the firmware binary file or None
-                                  if it should not be loaded into flash
+        flash_binaries (dict): dictionary with paths and offsets of files
+                               to load into flash
 
     Returns:
         string: platform defition containing all supported peripherals
@@ -441,17 +441,22 @@ emulation CreateTap "{}" "tap"
 connector Connect ethmac switch
 connector Connect host.tap switch
 """.format(host_tap_interface)
-    elif firmware_binary and 'flash_boot_address' in configuration.constants:
-        # load firmware binary to spiflash to boot from there
+    elif flash_binaries:
+        if 'flash_boot_address' not in configuration.constants:
+            print('Warning! There is no flash memory to load binaries to')
+        else:
+            # load binaries to spiflash to boot from there
 
-        firmware_data = open(firmware_binary, 'rb').read()
-        crc32 = zlib.crc32(firmware_data)
+            for offset in flash_binaries:
+                path = flash_binaries[offset]
+                flash_boot_address = int(configuration.constants['flash_boot_address']['value'], 0) + offset
 
-        flash_boot_address = int(configuration.constants['flash_boot_address']['value'], 0)
+                firmware_data = open(path, 'rb').read()
+                crc32 = zlib.crc32(firmware_data)
 
-        result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address), hex(len(firmware_data)))
-        result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address + 4), hex(crc32))
-        result += 'sysbus LoadBinary @{} {}\n'.format(firmware_binary, hex(flash_boot_address + 8))
+                result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address), hex(len(firmware_data)))
+                result += 'sysbus WriteDoubleWord {} {}\n'.format(hex(flash_boot_address + 4), hex(crc32))
+                result += 'sysbus LoadBinary @{} {}\n'.format(path, hex(flash_boot_address + 8))
 
     return result
 
@@ -471,6 +476,23 @@ def print_or_save(filepath, lines):
             f.write(lines)
 
 
+def parse_flash_binaries(args):
+    flash_binaries = {}
+
+    if args.firmware_binary:
+        flash_binaries[0] = args.firmware_binary
+
+    if args.flash_binaries_args:
+        for entry in args.flash_binaries_args:
+            partitioned = entry.rpartition(':')
+            if partitioned[1] == '':
+                print("Flash binary '{}' is in a wrong format. It should be 'path:offset'".format(entry))
+                sys.exit(1)
+            flash_binaries[int(partitioned[2], 0)] = partitioned[0]
+
+    return flash_binaries
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('conf_file',
@@ -485,6 +507,8 @@ def parse_args():
                         help='Path to the BIOS binary')
     parser.add_argument('--firmware-binary', action='store',
                         help='Path to the binary to load into boot flash')
+    parser.add_argument('--flash-binary', action='append', dest='flash_binaries_args',
+                        help='Path and an address of the binary to load into boot flash')
     args = parser.parse_args()
 
     return args
@@ -504,10 +528,11 @@ def main():
             print("REPL is needed when generating RESC file")
             sys.exit(1)
         else:
+            flash_binaries = parse_flash_binaries(args)
             print_or_save(args.resc, generate_resc(args.repl,
                                                    args.configure_network,
                                                    args.bios_binary,
-                                                   args.firmware_binary))
+                                                   flash_binaries))
 
 
 if __name__ == '__main__':
