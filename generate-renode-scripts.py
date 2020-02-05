@@ -336,6 +336,10 @@ def generate_repl():
         },
         'spiflash': {
             'handler': generate_spiflash
+        },
+        'ctrl': {
+            'handler': generate_peripheral,
+            'model': 'Miscellaneous.LiteX_SoC_Controller'
         }
     }
 

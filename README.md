@@ -67,7 +67,8 @@ The script can generate the following elements of the LiteX SoC:
 * `ethmac`,
 * `cas`,
 * `cpu`,
-* `spiflash`.
+* `spiflash`,
+* `ctrl`.
 
 ## Examples
 
