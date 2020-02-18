@@ -63,9 +63,8 @@ class Configuration(object):
                         self.peripherals[_csr_name]['constants'][local_name] = _val
                         found = True
                         break
-                if not found:
-                    # if it's not a CSR-related constant, it must be a global one
-                    self.constants[_name] = {'name': _name, 'value': _val}
+
+                self.constants[_name] = {'name': _name, 'value': _val}
             elif _type == 'memory_region':
                 self.mem_regions[_name] = {'name': _name,
                                            'address': int(_val, 0),
