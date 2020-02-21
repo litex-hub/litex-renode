@@ -488,11 +488,25 @@ def parse_flash_binaries(args):
 
     if args.flash_binaries_args:
         for entry in args.flash_binaries_args:
-            partitioned = entry.rpartition(':')
-            if partitioned[1] == '':
+            path, separator, offset_or_label = entry.rpartition(':')
+            if separator == '':
                 print("Flash binary '{}' is in a wrong format. It should be 'path:offset'".format(entry))
                 sys.exit(1)
-            flash_binaries[int(partitioned[2], 0)] = partitioned[0]
+
+            # offset can be either a number or one of the constants from the configuration
+            try:
+                # try a number first...
+                offset = int(offset_or_label, 0)
+            except ValueError:
+                # ... if it didn't work, check constants
+                if offset_or_label in configuration.constants:
+                    offset = int(configuration.constants[offset_or_label]['value'], 0)
+                else:
+                    print("Offset is in a wrong format. It should be either a number or one of the constants from the configuration file:")
+                    print("\n".join("\t{}".format(c) for c in configuration.constants.keys()))
+                    sys.exit(1)
+            
+            flash_binaries[offset] = path
 
     return flash_binaries
 
