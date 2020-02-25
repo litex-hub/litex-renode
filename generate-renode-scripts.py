@@ -145,23 +145,34 @@ sysbus:
 """.format(peripheral['address'], peripheral['name'])
 
 
+def get_cpu_type():
+    kind = None
+    variant = None
+
+    config_cpu_type = next((k for k in configuration.constants.keys() if k.startswith('config_cpu_type_')), None)
+    if config_cpu_type:
+        kind = config_cpu_type[len('config_cpu_type_'):]
+
+    config_cpu_variant = next((k for k in configuration.constants.keys() if k.startswith('config_cpu_variant_')), None)
+    if config_cpu_variant:
+        variant = config_cpu_variant[len('config_cpu_variant_'):]
+
+    return (kind, variant)
+
+
 def generate_cpu(time_provider):
     """ Generates definition of a CPU.
 
     Returns:
         string: repl definition of the CPU
     """
-    kind = configuration.constants['config_cpu_type']['value'].upper()
-    if 'config_cpu_variant' in configuration.constants:
-        variant = configuration.constants['config_cpu_variant']['value'].upper()
-    else:
-        variant = None
+    kind, variant = get_cpu_type()
 
-    if kind == 'VEXRISCV':
+    if kind == 'vexriscv':
         result = """
 cpu: CPU.VexRiscv @ sysbus
 """
-        if variant == 'LINUX':
+        if variant == 'linux':
             result += """
     cpuType: "rv32ima"
     privilegeArchitecture: PrivilegeArchitecture.Priv1_10
@@ -175,7 +186,7 @@ cpu: CPU.VexRiscv @ sysbus
     timeProvider: {}
 """.format(time_provider)
         return result
-    elif kind == 'PICORV32':
+    elif kind == 'picorv32':
         return """
 cpu: CPU.PicoRV32 @ sysbus
     cpuType: "rv32imc"
@@ -418,7 +429,7 @@ def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, flash_bi
         string: platform defition containing all supported peripherals
                 and memory regions
     """
-    cpu_type = configuration.constants['config_cpu_type']['value']
+    cpu_type, _ = get_cpu_type()
 
     result = """
 using sysbus
