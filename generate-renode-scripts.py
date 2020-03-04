@@ -345,8 +345,23 @@ peripherals_handlers = {
 }
 
 
+def genereate_etherbone_bridge(name, address, port):
+    # FIXME: for now the width is fixed to 0x800
+    return """
+{}: EtherboneBridge @ sysbus <{}, +0x800>
+    port: {}
+""".format(name, hex(address), port)
+
+
+def generate_repl(etherbone_peripherals):
 def generate_repl():
     """ Generates platform definition.
+
+    Args:
+        etherbone_peripherals (dict): collection of peripherals
+            that should not be simulated directly in Renode,
+            but connected to it over an etherbone bridge on
+            a provided port number
 
     Returns:
         string: platform defition containing all supported
@@ -370,8 +385,15 @@ def generate_repl():
                   .format(name, hex(peripheral['address'])))
             continue
 
-        h = name_to_handler[name]
-        result += h['handler'](peripheral, **h)
+        if name in etherbone_peripherals:
+            # generate an etherbone bridge for the peripheral
+            port = etherbone_peripherals[name]
+            result += genereate_etherbone_bridge(name, peripheral['address'], port)
+            pass
+        else:
+            # generate an actual model of the peripheral
+            h = peripherals_handlers[name]
+            result += h['handler'](peripheral, **h)
 
     return result
 
@@ -523,6 +545,29 @@ def parse_flash_binaries(args):
     return flash_binaries
 
 
+def check_etherbone_peripherals(peripherals):
+    result = {}
+    for p in peripherals:
+
+        name, separator, port = p.rpartition(':')
+        if separator == '':
+            print("Etherbone peripheral `{}` is in a wrong format. It should be in 'name:port'".format(p))
+            sys.exit(1)
+
+        if name not in peripherals_handlers:
+            print("Unsupported peripheral '{}'. Available ones:\n".format(name))
+            print("\n".join("\t{}".format(c) for c in peripherals_handlers.keys()))
+            sys.exit(1)
+            
+        if name == 'cpu':
+            print("CPU must be simulated in Renode")
+            sys.exit(1)
+
+        result[name] = port
+
+    return result
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('conf_file',
@@ -539,6 +584,8 @@ def parse_args():
                         help='Path to the binary to load into boot flash')
     parser.add_argument('--flash-binary', action='append', dest='flash_binaries_args',
                         help='Path and an address of the binary to load into boot flash')
+    parser.add_argument('--etherbone', action='append', dest='etherbone_peripherals',
+                        help='Peripheral to connect over etherbone bridge')
     args = parser.parse_args()
 
     return args
@@ -550,8 +597,10 @@ def main():
 
     configuration = Configuration(args.conf_file)
 
+    etherbone_peripherals = check_etherbone_peripherals(args.etherbone_peripherals)
+
     if args.repl:
-        print_or_save(args.repl, generate_repl())
+        print_or_save(args.repl, generate_repl(etherbone_peripherals))
 
     if args.resc:
         if not args.repl:
