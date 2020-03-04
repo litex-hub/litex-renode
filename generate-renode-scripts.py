@@ -295,6 +295,56 @@ def get_clock_frequency():
     return configuration.constants['config_clock_frequency' if 'config_clock_frequency' in configuration.constants else 'system_clock_frequency']['value']
 
 
+peripherals_handlers = {
+    'uart': {
+        'handler': generate_peripheral,
+        'model': 'UART.LiteX_UART'
+    },
+    'timer0': {
+        'handler': generate_peripheral,
+        'model': 'Timers.LiteX_Timer',
+        'properties': {
+            'frequency':
+                lambda: get_clock_frequency()
+        }
+    },
+    'ethmac': {
+        'handler': generate_ethmac,
+        'buffer': lambda: configuration.mem_regions['ethmac'],
+        'phy': lambda: configuration.peripherals['ethphy']
+    },
+    'cas': {
+        'handler': generate_cas,
+    },
+    'cpu': {
+        'name': 'cpu_timer',
+        'handler': generate_peripheral,
+        'model': 'Timers.LiteX_CPUTimer',
+        'properties': {
+            'frequency':
+                lambda: get_clock_frequency()
+        },
+        'interrupts': {
+            # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
+            'IRQ': lambda: 'cpu@100'
+        }
+    },
+    'ddrphy': {
+        'handler': generate_silencer
+    },
+    'sdram': {
+        'handler': generate_silencer
+    },
+    'spiflash': {
+        'handler': generate_spiflash
+    },
+    'ctrl': {
+        'handler': generate_peripheral,
+        'model': 'Miscellaneous.LiteX_SoC_Controller'
+    }
+}
+
+
 def generate_repl():
     """ Generates platform definition.
 
@@ -304,55 +354,6 @@ def generate_repl():
     """
     result = ""
 
-    # defines mapping of LiteX peripherals to Renode models
-    name_to_handler = {
-        'uart': {
-            'handler': generate_peripheral,
-            'model': 'UART.LiteX_UART'
-        },
-        'timer0': {
-            'handler': generate_peripheral,
-            'model': 'Timers.LiteX_Timer',
-            'properties': {
-                'frequency':
-                    lambda: get_clock_frequency()
-            }
-        },
-        'ethmac': {
-            'handler': generate_ethmac,
-            'buffer': lambda: configuration.mem_regions['ethmac'],
-            'phy': lambda: configuration.peripherals['ethphy']
-        },
-        'cas': {
-            'handler': generate_cas,
-        },
-        'cpu': {
-            'name': 'cpu_timer',
-            'handler': generate_peripheral,
-            'model': 'Timers.LiteX_CPUTimer',
-            'properties': {
-                'frequency':
-                    lambda: get_clock_frequency()
-            },
-            'interrupts': {
-                # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
-                'IRQ': lambda: 'cpu@100'
-            }
-        },
-        'ddrphy': {
-            'handler': generate_silencer
-        },
-        'sdram': {
-            'handler': generate_silencer
-        },
-        'spiflash': {
-            'handler': generate_spiflash
-        },
-        'ctrl': {
-            'handler': generate_peripheral,
-            'model': 'Miscellaneous.LiteX_SoC_Controller'
-        }
-    }
 
     # RISC-V CPU in Renode requires memory region size
     # to be a multiple of 4KB - this is a known limitation
@@ -364,7 +365,7 @@ def generate_repl():
     result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
 
     for name, peripheral in configuration.peripherals.items():
-        if name not in name_to_handler:
+        if name not in peripherals_handlers:
             print('Skipping unsupported peripheral `{}` at {}'
                   .format(name, hex(peripheral['address'])))
             continue
