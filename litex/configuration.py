@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Copyright (c) 2019 Antmicro
+Copyright (c) 2019-2020 Antmicro <www.antmicro.com>
 
 LiteX configuration parser.
 

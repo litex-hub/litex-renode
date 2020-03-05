@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Copyright (c) 2019 - 2020 Antmicro
+Copyright (c) 2019-2020 Antmicro <www.antmicro.com>
 
 Renode platform definition (repl) and script (resc) generator for LiteX SoC.
 
