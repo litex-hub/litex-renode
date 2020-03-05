@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Copyright (c) 2019 Antmicro
+Copyright (c) 2019 - 2020 Antmicro
 
 Renode platform definition (repl) and script (resc) generator for LiteX SoC.
 
@@ -295,8 +295,73 @@ def get_clock_frequency():
     return configuration.constants['config_clock_frequency' if 'config_clock_frequency' in configuration.constants else 'system_clock_frequency']['value']
 
 
+peripherals_handlers = {
+    'uart': {
+        'handler': generate_peripheral,
+        'model': 'UART.LiteX_UART'
+    },
+    'timer0': {
+        'handler': generate_peripheral,
+        'model': 'Timers.LiteX_Timer',
+        'properties': {
+            'frequency':
+                lambda: get_clock_frequency()
+        }
+    },
+    'ethmac': {
+        'handler': generate_ethmac,
+        'buffer': lambda: configuration.mem_regions['ethmac'],
+        'phy': lambda: configuration.peripherals['ethphy']
+    },
+    'cas': {
+        'handler': generate_cas,
+    },
+    'cpu': {
+        'name': 'cpu_timer',
+        'handler': generate_peripheral,
+        'model': 'Timers.LiteX_CPUTimer',
+        'properties': {
+            'frequency':
+                lambda: get_clock_frequency()
+        },
+        'interrupts': {
+            # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
+            'IRQ': lambda: 'cpu@100'
+        }
+    },
+    'ddrphy': {
+        'handler': generate_silencer
+    },
+    'sdram': {
+        'handler': generate_silencer
+    },
+    'spiflash': {
+        'handler': generate_spiflash
+    },
+    'ctrl': {
+        'handler': generate_peripheral,
+        'model': 'Miscellaneous.LiteX_SoC_Controller'
+    }
+}
+
+
+def genereate_etherbone_bridge(name, address, port):
+    # FIXME: for now the width is fixed to 0x800
+    return """
+{}: EtherboneBridge @ sysbus <{}, +0x800>
+    port: {}
+""".format(name, hex(address), port)
+
+
+def generate_repl(etherbone_peripherals):
 def generate_repl():
     """ Generates platform definition.
+
+    Args:
+        etherbone_peripherals (dict): collection of peripherals
+            that should not be simulated directly in Renode,
+            but connected to it over an etherbone bridge on
+            a provided port number
 
     Returns:
         string: platform defition containing all supported
@@ -304,55 +369,6 @@ def generate_repl():
     """
     result = ""
 
-    # defines mapping of LiteX peripherals to Renode models
-    name_to_handler = {
-        'uart': {
-            'handler': generate_peripheral,
-            'model': 'UART.LiteX_UART'
-        },
-        'timer0': {
-            'handler': generate_peripheral,
-            'model': 'Timers.LiteX_Timer',
-            'properties': {
-                'frequency':
-                    lambda: get_clock_frequency()
-            }
-        },
-        'ethmac': {
-            'handler': generate_ethmac,
-            'buffer': lambda: configuration.mem_regions['ethmac'],
-            'phy': lambda: configuration.peripherals['ethphy']
-        },
-        'cas': {
-            'handler': generate_cas,
-        },
-        'cpu': {
-            'name': 'cpu_timer',
-            'handler': generate_peripheral,
-            'model': 'Timers.LiteX_CPUTimer',
-            'properties': {
-                'frequency':
-                    lambda: get_clock_frequency()
-            },
-            'interrupts': {
-                # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
-                'IRQ': lambda: 'cpu@100'
-            }
-        },
-        'ddrphy': {
-            'handler': generate_silencer
-        },
-        'sdram': {
-            'handler': generate_silencer
-        },
-        'spiflash': {
-            'handler': generate_spiflash
-        },
-        'ctrl': {
-            'handler': generate_peripheral,
-            'model': 'Miscellaneous.LiteX_SoC_Controller'
-        }
-    }
 
     # RISC-V CPU in Renode requires memory region size
     # to be a multiple of 4KB - this is a known limitation
@@ -364,13 +380,20 @@ def generate_repl():
     result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
 
     for name, peripheral in configuration.peripherals.items():
-        if name not in name_to_handler:
+        if name not in peripherals_handlers:
             print('Skipping unsupported peripheral `{}` at {}'
                   .format(name, hex(peripheral['address'])))
             continue
 
-        h = name_to_handler[name]
-        result += h['handler'](peripheral, **h)
+        if name in etherbone_peripherals:
+            # generate an etherbone bridge for the peripheral
+            port = etherbone_peripherals[name]
+            result += genereate_etherbone_bridge(name, peripheral['address'], port)
+            pass
+        else:
+            # generate an actual model of the peripheral
+            h = peripherals_handlers[name]
+            result += h['handler'](peripheral, **h)
 
     return result
 
@@ -522,6 +545,29 @@ def parse_flash_binaries(args):
     return flash_binaries
 
 
+def check_etherbone_peripherals(peripherals):
+    result = {}
+    for p in peripherals:
+
+        name, separator, port = p.rpartition(':')
+        if separator == '':
+            print("Etherbone peripheral `{}` is in a wrong format. It should be in 'name:port'".format(p))
+            sys.exit(1)
+
+        if name not in peripherals_handlers:
+            print("Unsupported peripheral '{}'. Available ones:\n".format(name))
+            print("\n".join("\t{}".format(c) for c in peripherals_handlers.keys()))
+            sys.exit(1)
+            
+        if name == 'cpu':
+            print("CPU must be simulated in Renode")
+            sys.exit(1)
+
+        result[name] = port
+
+    return result
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('conf_file',
@@ -538,6 +584,8 @@ def parse_args():
                         help='Path to the binary to load into boot flash')
     parser.add_argument('--flash-binary', action='append', dest='flash_binaries_args',
                         help='Path and an address of the binary to load into boot flash')
+    parser.add_argument('--etherbone', action='append', dest='etherbone_peripherals',
+                        help='Peripheral to connect over etherbone bridge')
     args = parser.parse_args()
 
     return args
@@ -549,8 +597,10 @@ def main():
 
     configuration = Configuration(args.conf_file)
 
+    etherbone_peripherals = check_etherbone_peripherals(args.etherbone_peripherals)
+
     if args.repl:
-        print_or_save(args.repl, generate_repl())
+        print_or_save(args.repl, generate_repl(etherbone_peripherals))
 
     if args.resc:
         if not args.repl:
