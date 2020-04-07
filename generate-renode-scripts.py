@@ -354,7 +354,6 @@ def genereate_etherbone_bridge(name, address, port):
 
 
 def generate_repl(etherbone_peripherals):
-def generate_repl():
     """ Generates platform definition.
 
     Args:
@@ -585,6 +584,7 @@ def parse_args():
     parser.add_argument('--flash-binary', action='append', dest='flash_binaries_args',
                         help='Path and an address of the binary to load into boot flash')
     parser.add_argument('--etherbone', action='append', dest='etherbone_peripherals',
+                        default=[],
                         help='Peripheral to connect over etherbone bridge')
     args = parser.parse_args()
 
