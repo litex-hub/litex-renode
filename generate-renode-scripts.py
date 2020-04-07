@@ -354,7 +354,6 @@ def genereate_etherbone_bridge(name, address, port):
 
 
 def generate_repl(etherbone_peripherals):
-def generate_repl():
     """ Generates platform definition.
 
     Args:
