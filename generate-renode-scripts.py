@@ -120,12 +120,44 @@ def generate_memory_region(region_descriptor):
         string: repl definition of the memory region
     """
 
-    return """
+    result = ""
+
+    if 'original_address' in region_descriptor:
+        result += """
+This memory region's base address has been
+realigned to allow to simulate it -
+Renode currently supports memory regions
+with base address aligned to 0x1000.
+
+The original base address of this memory region
+was {}.
+""".format(hex(region_descriptor['original_address']))
+
+    if 'original_size' in region_descriptor:
+        result += """
+This memory region's size has been
+extended to allow to simulate it -
+Renode currently supports memory regions
+of size being a multiple of 0x1000.
+
+The original size of this memory region
+was {} bytes.
+""".format(hex(region_descriptor['original_size']))
+
+    if result != "":
+        result = """
+/* WARNING:
+{}
+*/""".format(result)
+
+    result += """
 {}: Memory.MappedMemory @ {}
     size: {}
 """.format(region_descriptor['name'],
            generate_sysbus_registration(region_descriptor, skip_size=True),
            hex(region_descriptor['size']))
+
+    return result
 
 
 def generate_silencer(peripheral, **kwargs):
@@ -353,7 +385,7 @@ def genereate_etherbone_bridge(name, address, port):
 """.format(name, hex(address), port)
 
 
-def generate_repl(etherbone_peripherals):
+def generate_repl(etherbone_peripherals, autoalign):
     """ Generates platform definition.
 
     Args:
@@ -361,6 +393,9 @@ def generate_repl(etherbone_peripherals):
             that should not be simulated directly in Renode,
             but connected to it over an etherbone bridge on
             a provided port number
+
+        autoalign (list): list of memory regions names that
+                          should be automatically re-aligned
 
     Returns:
         string: platform defition containing all supported
@@ -373,7 +408,7 @@ def generate_repl(etherbone_peripherals):
     # to be a multiple of 4KB - this is a known limitation
     # (not a bug) and there are no plans to handle smaller
     # memory regions for now
-    for mem_region in filter_memory_regions(list(configuration.mem_regions.values()), alignment=0x1000):
+    for mem_region in filter_memory_regions(list(configuration.mem_regions.values()), alignment=0x1000, autoalign=autoalign):
         result += generate_memory_region(mem_region)
 
     result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
@@ -397,7 +432,7 @@ def generate_repl(etherbone_peripherals):
     return result
 
 
-def filter_memory_regions(raw_regions, alignment=None):
+def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
     """ Filters memory regions skipping those of linker type
         and those from `non_generated_mem_regions` list
         and verifying if they have proper size and do not overlap.
@@ -407,6 +442,8 @@ def filter_memory_regions(raw_regions, alignment=None):
                                 the configuration file
             alignment (int or None): memory size boundary
 
+            autoalign (list): list of memory regions names that
+                              should be automatically re-aligned
         Returns:
             list: reduced, sorted list of memory regions to be generated
                   in a repl file
@@ -423,9 +460,27 @@ def filter_memory_regions(raw_regions, alignment=None):
             print('Skipping pre-defined memory region: {}'.format(r['name']))
             continue
 
-        if alignment is not None and r['size'] % alignment != 0:
-            print('Error: `{}` memory region size ({}) is not aligned to {}'.format(r['name'], hex(r['size']), hex(alignment)))
-            sys.exit(1)
+        if alignment is not None:
+            size_mismatch = r['size'] % alignment
+            address_mismatch = r['address'] % alignment
+
+            if address_mismatch != 0:
+                if r['name'] in autoalign:
+                    r['original_address'] = r['address']
+                    r['address'] -= address_mismatch
+                    print('Re-aligning `{}` memory region base address from {} to {} due to limitations in Renode'.format(r['name'], hex(r['original_address']), hex(r['address'])))
+                else:
+                    print('Error: `{}` memory region base address ({}) is not aligned to {}. This configuration cannot be currently simulated in Renode'.format(r['name'], hex(r['size']), hex(alignment)))
+                    sys.exit(1)
+
+            if size_mismatch != 0:
+                if r['name'] in autoalign:
+                    r['original_size'] = r['size']
+                    r['size'] += alignment - size_mismatch
+                    print('Extending `{}` memory region size from {} to {} due to limitations in Renode'.format(r['name'], hex(r['original_size']), hex(r['size'])))
+                else:
+                    print('Error: `{}` memory region size ({}) is not aligned to {}. This configuration cannot be currently simulated in Renode'.format(r['name'], hex(r['size']), hex(alignment)))
+                    sys.exit(1)
 
         if previous_region is not None and (previous_region['address'] + previous_region['size']) > (r['address'] + r['size']):
             print("Error: detected overlaping memory regions: `{}` and `{}`".format(r['name'], previous_region['name']))
@@ -462,7 +517,7 @@ showAnalyzer sysbus.uart
 showAnalyzer sysbus.uart Antmicro.Renode.Analyzers.LoggingUartAnalyzer
 """.format(cpu_type, repl_file)
 
-    rom_base = configuration.mem_regions['rom']['address']
+    rom_base = configuration.mem_regions['rom']['address'] if 'rom' in configuration.mem_regions else None
     if rom_base is not None and bios_binary:
         # load LiteX BIOS to ROM
         result += """
@@ -586,6 +641,9 @@ def parse_args():
     parser.add_argument('--etherbone', action='append', dest='etherbone_peripherals',
                         default=[],
                         help='Peripheral to connect over etherbone bridge')
+    parser.add_argument('--auto-align', action='append', dest='autoalign_memor_regions',
+                        default=[],
+                        help='List of memory regions to align automatically (necessary due to limitations in Renode)')
     args = parser.parse_args()
 
     return args
@@ -600,7 +658,7 @@ def main():
     etherbone_peripherals = check_etherbone_peripherals(args.etherbone_peripherals)
 
     if args.repl:
-        print_or_save(args.repl, generate_repl(etherbone_peripherals))
+        print_or_save(args.repl, generate_repl(etherbone_peripherals, args.autoalign_memor_regions))
 
     if args.resc:
         if not args.repl:
