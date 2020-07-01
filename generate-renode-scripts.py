@@ -490,15 +490,11 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
         yield r
 
 
-def generate_resc(repl_file, host_tap_interface=None, bios_binary=None, flash_binaries={}):
+def generate_resc(args, flash_binaries={}):
     """ Generates platform definition.
 
     Args:
-        repl_file (string): path to Renode platform definition file
-        host_tap_interface (string): name of the tap interface on host machine
-                                     or None if no network should be configured
-        bios_binary (string): path to the binary file of LiteX BIOS or None
-                              if it should not be loaded into ROM
+        args (object): configuration
         flash_binaries (dict): dictionary with paths and offsets of files
                                to load into flash
 
@@ -515,24 +511,24 @@ machine LoadPlatformDescription @{}
 machine StartGdbServer 10001
 showAnalyzer sysbus.uart
 showAnalyzer sysbus.uart Antmicro.Renode.Analyzers.LoggingUartAnalyzer
-""".format(cpu_type, repl_file)
+""".format(cpu_type, args.repl)
 
     rom_base = configuration.mem_regions['rom']['address'] if 'rom' in configuration.mem_regions else None
-    if rom_base is not None and bios_binary:
+    if rom_base is not None and args.bios_binary:
         # load LiteX BIOS to ROM
         result += """
 sysbus LoadBinary @{} {}
 cpu PC {}
-""".format(bios_binary, rom_base, rom_base)
+""".format(args.bios_binary, rom_base, rom_base)
 
-    if host_tap_interface:
+    if args.configure_network:
         # configure network to allow netboot
         result += """
 emulation CreateSwitch "switch"
 emulation CreateTap "{}" "tap"
 connector Connect ethmac switch
 connector Connect host.tap switch
-""".format(host_tap_interface)
+""".format(args.configure_network)
     elif flash_binaries:
         if 'flash_boot_address' not in configuration.constants:
             print('Warning! There is no flash memory to load binaries to')
@@ -666,9 +662,7 @@ def main():
             sys.exit(1)
         else:
             flash_binaries = parse_flash_binaries(args)
-            print_or_save(args.resc, generate_resc(args.repl,
-                                                   args.configure_network,
-                                                   args.bios_binary,
+            print_or_save(args.resc, generate_resc(args,
                                                    flash_binaries))
 
 
