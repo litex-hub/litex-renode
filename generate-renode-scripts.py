@@ -691,7 +691,7 @@ def parse_args():
     parser.add_argument('--auto-align', action='append', dest='autoalign_memor_regions',
                         default=[],
                         help='List of memory regions to align automatically (necessary due to limitations in Renode)')
-    parser.add_argument('--tftp-binary', action='append', dest='tftp_binaries_args',
+    parser.add_argument('--tftp-binary', action='append', dest='tftp_binaries_args', default=[],
                         help='Path and an optional alternative name of the binary to serve by the TFTP server')
     parser.add_argument('--tftp-server-ip', action='store', dest='tftp_ip',
                         help='The IP address of the TFTP server')
