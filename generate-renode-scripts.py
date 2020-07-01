@@ -8,6 +8,7 @@ This script parses LiteX 'csr.csv' file and generates scripts for Renode
 necessary to emulate the given configuration of the LiteX SoC.
 """
 
+import os
 import sys
 import zlib
 import argparse
@@ -490,13 +491,15 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
         yield r
 
 
-def generate_resc(args, flash_binaries={}):
+def generate_resc(args, flash_binaries={}, tftp_binaries={}):
     """ Generates platform definition.
 
     Args:
         args (object): configuration
         flash_binaries (dict): dictionary with paths and offsets of files
                                to load into flash
+        tftp_binaries (dict): dictionary with paths and names of files
+                               to serve with the built-in TFTP server
 
     Returns:
         string: platform defition containing all supported peripherals
@@ -521,7 +524,26 @@ sysbus LoadBinary @{} {}
 cpu PC {}
 """.format(args.bios_binary, rom_base, rom_base)
 
-    if args.configure_network:
+
+    if args.tftp_ip:
+        result += """
+
+emulation CreateNetworkServer "server" "{}"
+server StartTFTP {}
+""".format(args.tftp_ip, args.tftp_port)
+
+        for name, path in tftp_binaries.items():
+            result += """
+server.tftp ServeFile @{} "{}" """.format(path, name)
+
+        result += """
+
+emulation CreateSwitch "switch"
+connector Connect ethmac switch
+connector Connect server switch
+"""
+
+    elif args.configure_network:
         # configure network to allow netboot
         result += """
 emulation CreateSwitch "switch"
@@ -595,6 +617,35 @@ def parse_flash_binaries(args):
     return flash_binaries
 
 
+def check_tftp_binaries(args):
+    """
+        Expected format is:
+            * path_to_the_binary
+            * path_to_the_binary:alternative_name
+    """
+
+    if args.tftp_ip is None and len(args.tftp_binaries_args) > 0:
+        print('The TFPT server IP address must be provided')
+        sys.exit(1)
+
+    tftp_binaries = {}
+
+    for entry in args.tftp_binaries_args:
+        path, separator, name = entry.rpartition(':')
+        if separator == '':
+            # this means that no alternative name is provided, so we use the original one
+            name = os.path.basename(entry)
+            path = entry
+
+        if name in tftp_binaries:
+            print('File with name {} specified more than one - please check your configuration.'.format(name))
+            sys.exit(1)
+
+        tftp_binaries[name] = path
+
+    return tftp_binaries
+
+
 def check_etherbone_peripherals(peripherals):
     result = {}
     for p in peripherals:
@@ -640,6 +691,12 @@ def parse_args():
     parser.add_argument('--auto-align', action='append', dest='autoalign_memor_regions',
                         default=[],
                         help='List of memory regions to align automatically (necessary due to limitations in Renode)')
+    parser.add_argument('--tftp-binary', action='append', dest='tftp_binaries_args',
+                        help='Path and an optional alternative name of the binary to serve by the TFTP server')
+    parser.add_argument('--tftp-server-ip', action='store', dest='tftp_ip',
+                        help='The IP address of the TFTP server')
+    parser.add_argument('--tftp-server-port', action='store', default=69, type=int, dest='tftp_port',
+                        help='The port number of the TFTP server')
     args = parser.parse_args()
 
     return args
@@ -662,8 +719,11 @@ def main():
             sys.exit(1)
         else:
             flash_binaries = parse_flash_binaries(args)
+            tftp_binaries = check_tftp_binaries(args)
+            
             print_or_save(args.resc, generate_resc(args,
-                                                   flash_binaries))
+                                                   flash_binaries,
+                                                   tftp_binaries))
 
 
 if __name__ == '__main__':
