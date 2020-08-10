@@ -374,6 +374,10 @@ peripherals_handlers = {
     'ctrl': {
         'handler': generate_peripheral,
         'model': 'Miscellaneous.LiteX_SoC_Controller'
+    },
+    'i2c0': {
+        'handler': generate_peripheral,
+        'model': 'I2C.LiteX_I2C'
     }
 }
 
