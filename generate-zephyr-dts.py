@@ -150,7 +150,7 @@ def generate_config():
     result = ""
     for name, handler in peripheral_handlers.items():
         if name not in configuration.peripherals.keys():
-            result += "-DCONFIG_{}=n".format(handler['config_entry'])
+            result += "-DCONFIG_{}=n ".format(handler['config_entry'])
     return result
 
 
