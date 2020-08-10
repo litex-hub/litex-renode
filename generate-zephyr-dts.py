@@ -61,6 +61,20 @@ def ethmac_handler(peripheral, **kw):
     return result
 
 
+def i2c_handler(peripheral, **kw):
+    result = """
+&{} {{
+    reg = <{} {} {} {}>;
+}};
+""".format(kw['reference'],
+           hex(peripheral['address']),
+           hex(kw['size']),
+           hex(peripheral['address'] + kw['size']),
+           hex(kw['size']))
+
+    return result
+
+
 def peripheral_handler(peripheral, **kw):
     result = """
 &{} {{
@@ -103,6 +117,12 @@ peripheral_handlers = {
         'size': 0x6c,
         'buffer': lambda: configuration.mem_regions['ethmac'],
         'config_entry': 'ETH_LITEETH'
+    },
+    'i2c0' : {
+        'handler': i2c_handler,
+        'reference': 'i2c0',
+        'size': 0x4,
+        'config_entry': 'I2C_LITEX'
     }
 }
 
