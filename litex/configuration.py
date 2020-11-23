@@ -30,6 +30,13 @@ class Configuration(object):
             if not line.lstrip().startswith('#'):
                 yield line
 
+    def find_peripheral_constant(self, constant_name):
+        for _csr_name in self.peripherals:
+            if constant_name.startswith(_csr_name):
+                local_name = constant_name[len(_csr_name) + 1:]
+                return (self.peripherals[_csr_name], local_name)
+        return (None, None)
+
     def _parse_csv(self, data):
         """ Parses LiteX CSV file.
 
@@ -56,16 +63,15 @@ class Configuration(object):
                                          'size': int(_val2, 0),
                                          'r': _val3}
             elif _type == 'constant':
-                found = False
-                for _csr_name in self.peripherals:
-                    if _name.startswith(_csr_name):
-                        local_name = _name[len(_csr_name) + 1:]
-                        self.peripherals[_csr_name]['constants'][local_name] = _val
-                        found = True
-                        break
-                if not found:
+                p, ln = self.find_peripheral_constant(_name)
+
+                if not ln:
                     # if it's not a CSR-related constant, it must be a global one
                     self.constants[_name] = {'name': _name, 'value': _val}
+                else:
+                    # it's a CSR-related constant
+                    p['constants'][ln] = _val
+
             elif _type == 'memory_region':
                 self.mem_regions[_name] = {'name': _name,
                                            'address': int(_val, 0),
