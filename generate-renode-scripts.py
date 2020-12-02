@@ -246,10 +246,11 @@ def generate_peripheral(peripheral, **kwargs):
         generate_sysbus_registration(peripheral))
 
     for constant, val in peripheral['constants'].items():
-        if constant == 'interrupt':
-            result += '    -> cpu@{}\n'.format(val)
-        elif 'ignored_constants' not in kwargs or constant not in kwargs['ignored_constants']:
-            result += '    {}: {}\n'.format(constant, val)
+        if 'ignored_constants' not in kwargs or constant not in kwargs['ignored_constants']:
+            if constant == 'interrupt':
+                result += '    -> cpu@{}\n'.format(val)
+            else:
+                result += '    {}: {}\n'.format(constant, val)
 
     if 'properties' in kwargs:
         for prop, val in kwargs['properties'].items():
@@ -370,6 +371,11 @@ peripherals_handlers = {
     },
     'spiflash': {
         'handler': generate_spiflash
+    },
+    'spi': {
+        'handler': generate_peripheral,
+        'model': 'SPI.LiteX_SPI',
+        'ignored_constants': ['interrupt'] # model in Renode currently doesn't support interrupts
     },
     'ctrl': {
         'handler': generate_peripheral,
