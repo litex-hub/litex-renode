@@ -201,7 +201,7 @@ def generate_cpu(time_provider):
     """
     kind, variant = get_cpu_type()
 
-    if kind == 'vexriscv':
+    if kind == 'vexriscv' or kind == 'vexriscv_smp':
         result = """
 cpu: CPU.VexRiscv @ sysbus
 """
