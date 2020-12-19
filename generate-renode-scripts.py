@@ -319,6 +319,45 @@ button{}: Miscellaneous.Button @ cas {}
     return result
 
 
+def generate_mmc(peripheral, **kwargs):
+    """ Generates definition of 'mmc' peripheral.
+
+    Args:
+        peripheral (dict): peripheral description
+        kwargs (dict): additional parameters, including 'core', 'reader' and 'writer'
+
+    Returns:
+        string: repl definition of the peripheral
+    """
+    core = kwargs['core']()
+    reader = kwargs['reader']()
+    writer = kwargs['writer']()
+
+    # FIXME: Get litex to generate CSR region size into output information
+    # currently only a base address is present
+    core['size'] = 0x100
+    reader['size'] = 0x100
+    writer['size'] = 0x100
+
+    result = """
+mmc_controller: SD.LiteSDCard @ {{
+    {}; // phy
+    {};
+    {};
+    {}
+}}
+""".format(generate_sysbus_registration(peripheral,
+                                        skip_braces=True),
+           generate_sysbus_registration(core,
+                                        skip_braces=True, region='core'),
+           generate_sysbus_registration(reader,
+                                        skip_braces=True, region='reader'),
+           generate_sysbus_registration(writer,
+                                        skip_braces=True, region='writer'))
+
+    return result
+
+
 def get_clock_frequency():
     """
     Returns:
@@ -384,7 +423,13 @@ peripherals_handlers = {
     'i2c0': {
         'handler': generate_peripheral,
         'model': 'I2C.LiteX_I2C'
-    }
+    },
+    'sdphy': {
+        'handler': generate_mmc,
+        'core': lambda: configuration.peripherals['sdcore'],
+        'reader': lambda: configuration.peripherals['sdblock2mem'],
+        'writer': lambda: configuration.peripherals['sdmem2block']
+    },
 }
 
 
