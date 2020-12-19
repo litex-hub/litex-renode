@@ -358,6 +358,35 @@ mmc_controller: SD.LiteSDCard @ {{
     return result
 
 
+def generate_clint(clint, frequency):
+    # TODO: this is configuration for VexRiscv - add support for other CPU types
+    result = """
+clint: IRQControllers.CoreLevelInterruptor @ {}
+    frequency: {}
+    [0, 1] -> cpu@[101, 100]
+""".format(generate_sysbus_registration(clint,
+                                        skip_braces=True,
+                                        skip_size=True),
+           frequency)
+
+    return result
+
+
+def generate_plic(plic):
+    # TODO: this is configuration for VexRiscv - add support for other CPU types
+    result = """
+plic: IRQControllers.PlatformLevelInterruptController @ {}
+    [0-3] -> cpu@[8-11]
+    numberOfSources: 31
+    numberOfTargets: 2
+    prioritiesEnabled: false
+""".format(generate_sysbus_registration(plic,
+                                        skip_braces=True,
+                                        skip_size=True))
+
+    return result
+
+
 def get_clock_frequency():
     """
     Returns:
@@ -467,7 +496,18 @@ def generate_repl(etherbone_peripherals, autoalign):
     for mem_region in filter_memory_regions(list(configuration.mem_regions.values()), alignment=0x1000, autoalign=autoalign):
         result += generate_memory_region(mem_region)
 
-    result += generate_cpu('cpu_timer' if 'cpu' in configuration.peripherals else None)
+    time_provider = None
+    if 'clint' in configuration.mem_regions:
+        result += generate_clint(configuration.mem_regions['clint'], configuration.constants['config_clock_frequency']['value'])
+        time_provider = 'clint'
+
+    if 'plic' in configuration.mem_regions:
+        result += generate_plic(configuration.mem_regions['plic'])
+
+    if not time_provider and 'cpu' in configuration.peripherals:
+        time_provider = 'cpu_timer'
+
+    result += generate_cpu(time_provider)
 
     for name, peripheral in configuration.peripherals.items():
         if name not in peripherals_handlers:
