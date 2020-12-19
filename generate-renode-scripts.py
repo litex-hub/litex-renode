@@ -276,11 +276,11 @@ def generate_spiflash(peripheral, **kwargs):
     """
 
     result = """
-spi: SPI.LiteX_SPI_Flash @ {{
+spi_flash: SPI.LiteX_SPI_Flash @ {{
     {}
 }}
 
-mt25q: SPI.Micron_MT25Q @ spi
+mt25q: SPI.Micron_MT25Q @ spi_flash
     underlyingMemory: spiflash
 """.format(
         generate_sysbus_registration(peripheral, skip_braces=True))
