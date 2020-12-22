@@ -552,6 +552,10 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
             print('Skipping linker region: {}'.format(r['name']))
             continue
 
+        if 'io' in r['type']:
+            print('Skipping io region: {}'.format(r['name']))
+            continue
+
         if r['name'] in non_generated_mem_regions:
             print('Skipping pre-defined memory region: {}'.format(r['name']))
             continue
