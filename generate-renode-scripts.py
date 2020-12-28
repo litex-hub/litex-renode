@@ -459,6 +459,11 @@ peripherals_handlers = {
         'reader': lambda: configuration.peripherals['sdblock2mem'],
         'writer': lambda: configuration.peripherals['sdmem2block']
     },
+    'spisdcard': {
+        'handler': generate_peripheral,
+        'model': 'SPI.LiteX_SPI',
+        'ignored_constants': ['interrupt'] # model in Renode currently doesn't support interrupts
+    },
 }
 
 
