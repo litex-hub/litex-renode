@@ -210,6 +210,10 @@ cpu: CPU.VexRiscv @ sysbus
     cpuType: "rv32ima"
     privilegeArchitecture: PrivilegeArchitecture.Priv1_10
 """
+        elif variant in ["i", "im", "ima", "imac"]:
+            result += """
+    cpuType: "rv32{}"
+""".format(variant)
         else:
             result += """
     cpuType: "rv32im"
