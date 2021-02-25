@@ -421,6 +421,7 @@ peripherals_handlers = {
     'timer0': {
         'handler': generate_peripheral,
         'model': 'Timers.LiteX_Timer',
+        'model_CSR32': 'Timers.LiteX_Timer_CSR32',
         'properties': {
             'frequency':
                 lambda: get_clock_frequency()
