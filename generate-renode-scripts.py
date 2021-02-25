@@ -411,7 +411,8 @@ def get_clock_frequency():
 peripherals_handlers = {
     'uart': {
         'handler': generate_peripheral,
-        'model': 'UART.LiteX_UART'
+        'model': 'UART.LiteX_UART',
+        'ignored_constants': ['polling']
     },
     'timer0': {
         'handler': generate_peripheral,
