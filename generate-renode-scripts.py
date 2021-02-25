@@ -251,9 +251,13 @@ def generate_peripheral(peripheral, **kwargs):
         string: repl definition of the peripheral
     """
 
+    model = kwargs['model']
+    if configuration.constants['config_csr_data_width']['value'] == '32' and 'model_CSR32' in kwargs:
+        model = kwargs['model_CSR32']
+
     result = '\n{}: {} @ {}\n'.format(
         kwargs['name'] if 'name' in kwargs else peripheral['name'],
-        kwargs['model'],
+        model,
         generate_sysbus_registration(peripheral))
 
     for constant, val in peripheral['constants'].items():
