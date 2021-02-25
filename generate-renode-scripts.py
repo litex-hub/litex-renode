@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Copyright (c) 2019-2020 Antmicro <www.antmicro.com>
+Copyright (c) 2019-2021 Antmicro <www.antmicro.com>
 
 Renode platform definition (repl) and script (resc) generator for LiteX SoC.
 
@@ -227,6 +227,13 @@ cpu: CPU.VexRiscv @ sysbus
         return """
 cpu: CPU.PicoRV32 @ sysbus
     cpuType: "rv32imc"
+"""
+    elif kind == 'ibex':
+        return """
+cpu: CPU.RiscV32 @ sysbus
+    cpuType: "rv32imc"
+    timeProvider: empty
+    interruptMode: InterruptMode.Vectored
 """
     else:
         raise Exception('Unsupported cpu type: {}'.format(kind))
