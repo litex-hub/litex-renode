@@ -86,12 +86,13 @@ def generate_ethmac(peripheral, **kwargs):
     phy['size'] = 0x800
 
     result = """
-ethmac: Network.LiteX_Ethernet @ {{
+ethmac: Network.LiteX_Ethernet{} @ {{
     {};
     {};
     {}
 }}
-""".format(generate_sysbus_registration(peripheral,
+""".format('_CSR32' if configuration.constants['config_csr_data_width']['value'] == '32' else '',
+           generate_sysbus_registration(peripheral,
                                         skip_braces=True),
            generate_sysbus_registration(buf,
                                         skip_braces=True, region='buffer'),
