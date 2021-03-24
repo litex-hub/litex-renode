@@ -223,6 +223,12 @@ cpu: CPU.VexRiscv @ sysbus
             result += """
     timeProvider: {}
 """.format(time_provider)
+
+        if kind == 'vexriscv_smp':
+            result += """
+    builtInIrqController: false
+"""
+
         return result
     elif kind == 'picorv32':
         return """
