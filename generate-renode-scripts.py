@@ -356,13 +356,14 @@ def generate_mmc(peripheral, **kwargs):
     writer['size'] = 0x100
 
     result = """
-mmc_controller: SD.LiteSDCard @ {{
+mmc_controller: SD.LiteSDCard{} @ {{
     {}; // phy
     {};
     {};
     {}
 }}
-""".format(generate_sysbus_registration(peripheral,
+""".format('_CSR32' if configuration.constants['config_csr_data_width']['value'] == 32 else '',
+           generate_sysbus_registration(peripheral,
                                         skip_braces=True),
            generate_sysbus_registration(core,
                                         skip_braces=True, region='core'),
@@ -465,7 +466,8 @@ peripherals_handlers = {
     },
     'ctrl': {
         'handler': generate_peripheral,
-        'model': 'Miscellaneous.LiteX_SoC_Controller'
+        'model': 'Miscellaneous.LiteX_SoC_Controller',
+        'model_CSR32': 'Miscellaneous.LiteX_SoC_Controller_CSR32'
     },
     'i2c0': {
         'handler': generate_peripheral,
