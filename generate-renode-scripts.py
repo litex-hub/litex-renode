@@ -91,7 +91,7 @@ ethmac: Network.LiteX_Ethernet{} @ {{
     {};
     {}
 }}
-""".format('_CSR32' if configuration.constants['config_csr_data_width']['value'] == '32' else '',
+""".format('_CSR32' if configuration.constants['config_csr_data_width']['value'] == 32 else '',
            generate_sysbus_registration(peripheral,
                                         skip_braces=True),
            generate_sysbus_registration(buf,
@@ -253,7 +253,7 @@ def generate_peripheral(peripheral, **kwargs):
     """
 
     model = kwargs['model']
-    if configuration.constants['config_csr_data_width']['value'] == '32' and 'model_CSR32' in kwargs:
+    if configuration.constants['config_csr_data_width']['value'] == 32 and 'model_CSR32' in kwargs:
         model = kwargs['model_CSR32']
 
     result = '\n{}: {} @ {}\n'.format(
