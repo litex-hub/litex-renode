@@ -10,7 +10,7 @@ files overlay for Zephyr.
 
 import argparse
 
-from litex.configuration import Configuration
+from litex_renode.configuration import Configuration
 
 configuration = None
 

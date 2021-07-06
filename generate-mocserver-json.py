@@ -3,7 +3,7 @@ import argparse
 import collections
 import json
 
-from litex.configuration import Configuration
+from litex_renode.configuration import Configuration
 
 configuration = None
 

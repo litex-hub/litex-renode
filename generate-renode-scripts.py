@@ -13,7 +13,7 @@ import sys
 import zlib
 import argparse
 
-from litex.configuration import Configuration
+from litex_renode.configuration import Configuration
 
 # those memory regions are handled in a special way
 # and should not be generated automatically
