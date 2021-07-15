@@ -12,7 +12,9 @@
 # - 2021-07-05 Henk Vergonet <henk.vergonet@gmail.com>
 #    removed dependency on intermediate interpretation layers
 #    switch to JSON csr
-#    fix uart size parameter
+# - 2021-07-15 Henk Vergonet <henk.vergonet@gmail.com>
+#    added identifier_mem handler as dna0
+#    added spiflash as spi0
 #
 
 import argparse
@@ -87,6 +89,12 @@ overlay_handlers = {
         'size': 0x80,
         'config_entry': 'ETH_LITEETH'
     },
+    'spiflash': {
+        'handler': peripheral_handler,
+        'alias': 'spi0',
+        'size': 12,
+        'config_entry': 'SPI_LITESPI'
+    },
     'i2c0' : {
         'handler': i2c_handler,
         'size': 0x4,
@@ -95,6 +103,11 @@ overlay_handlers = {
     'main_ram': {
         'handler': ram_handler,
         'alias': 'ram0',
+    },
+    'identifier_mem': {
+        'handler': peripheral_handler,
+        'alias': 'dna0',
+        'size': 0x100,
     },
 }
 
