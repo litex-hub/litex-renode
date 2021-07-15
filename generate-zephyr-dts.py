@@ -1,179 +1,131 @@
 #!/usr/bin/env python3
-"""
-Copyright (c) 2019-2020 Antmicro <www.antmicro.com>
 
-Zephyr DTS & config overlay generator for LiteX SoC.
+# Copyright (c) 2019-2020 Antmicro <www.antmicro.com>
+# Copyright (c) 2021 Henk Vergonet <henk.vergonet@gmail.com>
+#
+# Zephyr DTS & config overlay generator for LiteX SoC.
+#
+# This script parses LiteX 'csr.json' file and generates DTS and config
+# files overlay for Zephyr.
 
-This script parses LiteX 'csr.csv' file and generates DTS and config
-files overlay for Zephyr.
-"""
+# Changelog:
+# - 2021-07-05 Henk Vergonet <henk.vergonet@gmail.com>
+#    removed dependency on intermediate interpretation layers
+#    switch to JSON csr
+#    fix uart size parameter
+#
 
 import argparse
-
-from litex_renode.configuration import Configuration
-
-configuration = None
+import json
 
 
-def disabled_handler(name):
-    return """
-&{} {{
-    status = "disabled";
-}};
-""".format(name)
+# DTS formatting
+def dts_open(name, parm): return "&{} {{\n".format(parm.get('alias',name))
+def dts_close():          return "};\n"
+def dts_intr(name, csr):  return "    interrupts = <{} 0>;\n".format(
+                                    hex(csr['constants'][name+'_interrupt']))
+def dts_reg(regs):        return "    reg = <{}>;\n".format(regs)
 
 
-def ram_handler(region, **kw):
-
-    result = """
-&ram0 {{
-    reg = <0x{address} {size}>;
-}};
-""".format(address=hex(region['address'])[2:], size=hex(region['size']))
-
-    return result
+# DTS handlers
+def disabled_handler(name, parm, csr):
+    return "    status = \"disabled\";\n"
 
 
-def ethmac_handler(peripheral, **kw):
-    buf = kw['buffer']()
-
-    result = """
-&{} {{
-""".format(kw['reference'])
-
-    result += """
-    reg = <{} {} {} {}>;
-""".format(hex(peripheral['address']),
-           hex(kw['size']),
-           hex(buf['address']),
-           hex(buf['size']))
-
-    if 'constants' in peripheral:
-        if 'interrupt' in peripheral['constants']:
-            irq_no = int(peripheral['constants']['interrupt'], 0)
-            result += """
-    interrupts = <{} 0>;
-""".format(hex(irq_no))
-
-    result += """
-};
-"""
-    return result
+def ram_handler(name, parm, csr):
+    return dts_reg(" ".join([
+                hex(csr['memories'][name]['base']),
+                hex(csr['memories'][name]['size'])]))
 
 
-def i2c_handler(peripheral, **kw):
-    result = """
-&{} {{
-    reg = <{} {} {} {}>;
-}};
-""".format(kw['reference'],
-           hex(peripheral['address']),
-           hex(kw['size']),
-           hex(peripheral['address'] + kw['size']),
-           hex(kw['size']))
-
-    return result
+def ethmac_handler(name, parm, csr):
+    dtsi  = dts_reg(" ".join([
+                hex(csr['csr_bases'][name]),
+                hex(parm['size']),
+                hex(csr['memories'][name]['base']),
+                hex(csr['memories'][name]['size'])]))
+    dtsi += dts_intr(name, csr)
+    return dtsi
 
 
-def peripheral_handler(peripheral, **kw):
-    result = """
-&{} {{
-""".format(kw['reference'])
-
-    result += """
-    reg = <{} {}>;
-""".format(hex(peripheral['address']),
-           hex(kw['size']))
-
-    if 'constants' in peripheral:
-        if 'interrupt' in peripheral['constants']:
-            irq_no = int(peripheral['constants']['interrupt'], 0)
-            result += """
-    interrupts = <{} 0>;
-""".format(hex(irq_no))
-
-    result += """
-};
-"""
-    return result
+def i2c_handler(name, parm, csr):
+    dtsi  = dts_reg(" ".join([
+                hex(csr['csr_bases'][name]),
+                hex(parm['size']),
+                hex(csr['csr_bases'][name] + parm['size']),
+                hex(parm['size'])]))
+    dtsi += dts_intr(name, csr)
+    return dtsi
 
 
-peripheral_handlers = {
+def peripheral_handler(name, parm, csr):
+    dtsi  = dts_reg(" ".join([
+                hex(csr['csr_bases'][name]),
+                hex(parm['size'])]))
+    try:
+        dtsi += dts_intr(name, csr)
+    except KeyError as e:
+        print('  dtsi key', e, 'not found, no interrupt override')
+    return dtsi
+
+
+overlay_handlers = {
     'uart': {
         'handler': peripheral_handler,
-        'reference': 'uart0',
-        'size': 0x18,
+        'alias': 'uart0',
+        'size': 0x20,
         'config_entry': 'UART_LITEUART'
     },
     'timer0': {
         'handler': peripheral_handler,
-        'reference': 'timer0',
         'size': 0x40,
         'config_entry': 'LITEX_TIMER'
     },
     'ethmac': {
         'handler': ethmac_handler,
-        'reference': 'eth0',
-        'size': 0x6c,
-        'buffer': lambda: configuration.mem_regions['ethmac'],
+        'alias': 'eth0',
+        'size': 0x80,
         'config_entry': 'ETH_LITEETH'
     },
     'i2c0' : {
         'handler': i2c_handler,
-        'reference': 'i2c0',
         'size': 0x4,
         'config_entry': 'I2C_LITEX'
-    }
-}
-
-
-mem_region_handler = {
+    },
     'main_ram': {
         'handler': ram_handler,
-    }
+        'alias': 'ram0',
+    },
 }
 
+def generate_dts_config(csr):
+    dts = cnf = ''
 
-def generate_dts():
-    result = ""
+    for name, parm in overlay_handlers.items():
+        print('Generating overlay for:',name)
+        enable = 'y'
+        dtsi = dts_open(name, parm)
 
-    for name, peripheral in configuration.peripherals.items():
-        if name not in peripheral_handlers:
-            print('Skipping unsupported peripheral `{}` at {}'
-                  .format(name, hex(peripheral['address'])))
-            continue
+        try:
+            dtsi += parm['handler'](name, parm, csr)
+        except KeyError as e:
+            print('  dtsi key', e, 'not found, disable',  name)
+            enable = 'n'
+            dtsi += disabled_handler(name, parm, csr)
 
-        h = peripheral_handlers[name]
-        result += h['handler'](peripheral, **h)
+        dtsi += dts_close()
+        dts += dtsi
+        if 'config_entry' in parm:
+            cnf += ' -DCONFIG_'+parm['config_entry']+'='+enable 
 
-    # disable all known, but not present devices
-    for name, handler in peripheral_handlers.items():
-        if name in configuration.peripherals.keys():
-            # this has already been generated
-            continue
-        result += disabled_handler(handler['reference'])
+    for name, value in csr['csr_bases'].items():
+        if name not in overlay_handlers.keys():
+            print('No overlay handler for:', name, 'at', hex(value))
 
-    print(configuration.mem_regions)
-    for name, mem_region in configuration.mem_regions.items():
-        if name not in mem_region_handler:
-            print('Skipping unsupported mem_region `{}` at {}'
-                  .format(name, hex(mem_region['address'])))
-            continue
-
-        h = mem_region_handler[name]
-        result += h['handler'](mem_region, **h)
-
-    return result
+    return dts, cnf
 
 
-def generate_config():
-    result = ""
-    for name, handler in peripheral_handlers.items():
-        if name not in configuration.peripherals.keys():
-            result += "-DCONFIG_{}=n ".format(handler['config_entry'])
-    return result
-
-
+# helpers
 def print_or_save(filepath, lines):
     """ Prints given string on standard output or to the file.
 
@@ -192,23 +144,23 @@ def print_or_save(filepath, lines):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('conf_file',
-                        help='CSV configuration generated by LiteX')
+                        help='JSON configuration generated by LiteX')
     parser.add_argument('--dts', action='store', required=True,
                         help='Output DTS overlay file')
     parser.add_argument('--config', action='store', required=True,
                         help='Output config overlay file')
-    args = parser.parse_args()
-
-    return args
+    return parser.parse_args()
 
 
 def main():
-    global configuration
     args = parse_args()
 
-    configuration = Configuration(args.conf_file)
-    print_or_save(args.dts, generate_dts())
-    print_or_save(args.config, generate_config())
+    with open(args.conf_file) as f:
+        csr = json.load(f)
+    dts, config = generate_dts_config(csr)
+
+    print_or_save(args.dts, dts)
+    print_or_save(args.config, config)
 
 
 if __name__ == '__main__':
