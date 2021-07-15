@@ -12,6 +12,7 @@
 # - 2021-07-05 Henk Vergonet <henk.vergonet@gmail.com>
 #    removed dependency on intermediate interpretation layers
 #    switch to JSON csr
+#    fix uart size parameter
 # - 2021-07-15 Henk Vergonet <henk.vergonet@gmail.com>
 #    added identifier_mem handler as dna0
 #    added spiflash as spi0
