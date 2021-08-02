@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) 2019-2020 Antmicro <www.antmicro.com>
+# Copyright (c) 2019-2021 Antmicro <www.antmicro.com>
 # Copyright (c) 2021 Henk Vergonet <henk.vergonet@gmail.com>
 #
 # Zephyr DTS & config overlay generator for LiteX SoC.
@@ -23,10 +23,10 @@ import json
 
 
 # DTS formatting
-def dts_open(name, parm): return "&{} {{\n".format(parm.get('alias',name))
+def dts_open(name, parm): return "&{} {{\n".format(parm.get('alias', name))
 def dts_close():          return "};\n"
 def dts_intr(name, csr):  return "    interrupts = <{} 0>;\n".format(
-                                    hex(csr['constants'][name+'_interrupt']))
+                                    hex(csr['constants'][name + '_interrupt']))
 def dts_reg(regs):        return "    reg = <{}>;\n".format(regs)
 
 
@@ -109,8 +109,9 @@ overlay_handlers = {
         'handler': peripheral_handler,
         'alias': 'dna0',
         'size': 0x100,
-    },
+    }
 }
+
 
 def generate_dts_config(csr):
     dts = cnf = ''
@@ -123,14 +124,14 @@ def generate_dts_config(csr):
         try:
             dtsi += parm['handler'](name, parm, csr)
         except KeyError as e:
-            print('  dtsi key', e, 'not found, disable',  name)
+            print('  dtsi key', e, 'not found, disable', name)
             enable = 'n'
             dtsi += disabled_handler(name, parm, csr)
 
         dtsi += dts_close()
         dts += dtsi
         if 'config_entry' in parm:
-            cnf += ' -DCONFIG_'+parm['config_entry']+'='+enable 
+            cnf += ' -DCONFIG_' + parm['config_entry'] + '=' + enable 
 
     for name, value in csr['csr_bases'].items():
         if name not in overlay_handlers.keys():
