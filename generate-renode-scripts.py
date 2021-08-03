@@ -4,22 +4,35 @@ Copyright (c) 2019-2021 Antmicro <www.antmicro.com>
 
 Renode platform definition (repl) and script (resc) generator for LiteX SoC.
 
-This script parses LiteX 'csr.csv' file and generates scripts for Renode
+This script parses LiteX 'csr.json' file and generates scripts for Renode
 necessary to emulate the given configuration of the LiteX SoC.
 """
 
 import os
 import sys
+import json
+import pprint
 import zlib
 import argparse
 
-from litex_renode.configuration import Configuration
 
 # those memory regions are handled in a special way
 # and should not be generated automatically
 non_generated_mem_regions = ['ethmac', 'csr']
 
-configuration = None
+
+def get_descriptor(csr, name, size=None):
+    res = { 'base': csr['csr_bases'][name] }
+    consts = {}
+    for c in csr['constants']:
+        if c.startswith('{}_'.format(name)):
+            consts[c[len(name) + 1:]] = csr['constants'][c]
+
+    res['constants'] = consts
+
+    if size:
+        res['size'] = size
+    return res
 
 
 def generate_sysbus_registration(descriptor,
@@ -51,14 +64,13 @@ def generate_sysbus_registration(descriptor,
             return "sysbus <{}, +{}>".format(hex(address), hex(size))
         return "sysbus {}".format(hex(address))
 
-    address = descriptor['address']
-    shadowed_address = descriptor['shadowed_address']
+    address = descriptor['base']
     size = descriptor['size'] if 'size' in descriptor and not skip_size else None
 
-    if shadowed_address:
+    if 'shadowed_address' in descriptor:
         result = "{}; {}".format(
             generate_registration_entry(address, size, region),
-            generate_registration_entry(shadowed_address, size, region))
+            generate_registration_entry(descriptor['shadowed_address'], size, region))
     else:
         result = generate_registration_entry(address, size, region)
 
@@ -68,22 +80,20 @@ def generate_sysbus_registration(descriptor,
     return result
 
 
-def generate_ethmac(peripheral, **kwargs):
+def generate_ethmac(csr, name, **kwargs):
     """ Generates definition of 'ethmac' peripheral.
 
     Args:
-        peripheral (dict): peripheral description
+        csr (dict): LiteX configuration
+        name (string): name of the peripheral
         kwargs (dict): additional parameters, including 'buffer'
 
     Returns:
         string: repl definition of the peripheral
     """
-    buf = kwargs['buffer']()
-    phy = kwargs['phy']()
-
-    # FIXME: Get litex to generate CSR region size into output information
-    # currently only a base address is present
-    phy['size'] = 0x800
+    buf = csr['memories']['ethmac']
+    phy = get_descriptor(csr, 'ethphy', 0x800)
+    peripheral = get_descriptor(csr, name)
 
     result = """
 ethmac: Network.LiteX_Ethernet{} @ {{
@@ -91,7 +101,7 @@ ethmac: Network.LiteX_Ethernet{} @ {{
     {};
     {}
 }}
-""".format('_CSR32' if configuration.constants['config_csr_data_width']['value'] == 32 else '',
+""".format('_CSR32' if csr['constants']['config_csr_data_width'] == 32 else '',
            generate_sysbus_registration(peripheral,
                                         skip_braces=True),
            generate_sysbus_registration(buf,
@@ -99,9 +109,10 @@ ethmac: Network.LiteX_Ethernet{} @ {{
            generate_sysbus_registration(phy,
                                         skip_braces=True, region='phy'))
 
-    if 'interrupt' in peripheral['constants']:
+    interrupt_name = '{}_interrupt'.format(name)
+    if interrupt_name in csr['constants']:
         result += '    -> cpu@{}\n'.format(
-            peripheral['constants']['interrupt'])
+            csr['constants'][interrupt_name])
 
     result += """
 
@@ -162,11 +173,10 @@ was {} bytes.
     return result
 
 
-def generate_silencer(peripheral, **kwargs):
+def generate_silencer(csr, name, **kwargs):
     """ Silences access to a memory region.
 
     Args:
-        peripheral (dict): peripheral description
         kwargs (dict): additional parameters, not used
 
     Returns:
@@ -176,31 +186,31 @@ def generate_silencer(peripheral, **kwargs):
 sysbus:
     init add:
         SilenceRange <{} 0x200> # {}
-""".format(peripheral['address'], peripheral['name'])
+""".format(csr['csr_bases'][name], name)
 
 
-def get_cpu_type():
+def get_cpu_type(csr):
     kind = None
     variant = None
 
-    config_cpu_type = next((k for k in configuration.constants.keys() if k.startswith('config_cpu_type_')), None)
+    config_cpu_type = next((k for k in csr['constants'].keys() if k.startswith('config_cpu_type_')), None)
     if config_cpu_type:
         kind = config_cpu_type[len('config_cpu_type_'):]
 
-    config_cpu_variant = next((k for k in configuration.constants.keys() if k.startswith('config_cpu_variant_')), None)
+    config_cpu_variant = next((k for k in csr['constants'].keys() if k.startswith('config_cpu_variant_')), None)
     if config_cpu_variant:
         variant = config_cpu_variant[len('config_cpu_variant_'):]
 
     return (kind, variant)
 
 
-def generate_cpu(time_provider):
+def generate_cpu(csr, time_provider):
     """ Generates definition of a CPU.
 
     Returns:
         string: repl definition of the CPU
     """
-    kind, variant = get_cpu_type()
+    kind, variant = get_cpu_type(csr)
 
     if kind == 'vexriscv' or kind == 'vexriscv_smp':
         result = """
@@ -246,11 +256,12 @@ cpu: CPU.RiscV32 @ sysbus
         raise Exception('Unsupported cpu type: {}'.format(kind))
 
 
-def generate_peripheral(peripheral, **kwargs):
+def generate_peripheral(csr, name, **kwargs):
     """ Generates definition of a peripheral.
 
     Args:
-        peripheral (dict): peripheral description
+        csr (dict): LiteX configuration
+        name (string): name of the peripheral
         kwargs (dict): additional parameterss, including
                        'model' and 'properties'
 
@@ -258,12 +269,14 @@ def generate_peripheral(peripheral, **kwargs):
         string: repl definition of the peripheral
     """
 
+    peripheral = get_descriptor(csr, name)
+
     model = kwargs['model']
-    if configuration.constants['config_csr_data_width']['value'] == 32 and 'model_CSR32' in kwargs:
+    if csr['constants']['config_csr_data_width'] == 32 and 'model_CSR32' in kwargs:
         model = kwargs['model_CSR32']
 
     result = '\n{}: {} @ {}\n'.format(
-        kwargs['name'] if 'name' in kwargs else peripheral['name'],
+        kwargs['name'] if 'name' in kwargs else name,
         model,
         generate_sysbus_registration(peripheral))
 
@@ -276,7 +289,7 @@ def generate_peripheral(peripheral, **kwargs):
 
     if 'properties' in kwargs:
         for prop, val in kwargs['properties'].items():
-            result += '    {}: {}\n'.format(prop, val())
+            result += '    {}: {}\n'.format(prop, val(csr))
 
     if 'interrupts' in kwargs:
         for prop, val in kwargs['interrupts'].items():
@@ -285,17 +298,20 @@ def generate_peripheral(peripheral, **kwargs):
     return result
 
 
-def generate_spiflash(peripheral, **kwargs):
+def generate_spiflash(csr, name, **kwargs):
     """ Generates definition of an SPI controller with attached flash memory.
 
     Args:
-        peripheral (dict): peripheral description
+        csr (dict): LiteX configuration
+        name (string): name of the peripheral
         kwargs (dict): additional parameterss, including
                        'model' and 'properties'
 
     Returns:
         string: repl definition of the peripheral
     """
+
+    peripheral = get_descriptor(csr, name)
 
     result = """
 spi_flash: SPI.LiteX_SPI_Flash @ {{
@@ -341,25 +357,23 @@ button{}: Miscellaneous.Button @ cas {}
     return result
 
 
-def generate_mmc(peripheral, **kwargs):
+def generate_mmc(csr, name, **kwargs):
     """ Generates definition of 'mmc' peripheral.
 
     Args:
-        peripheral (dict): peripheral description
+        csr (dict): LiteX configuration
         kwargs (dict): additional parameters, including 'core', 'reader' and 'writer'
 
     Returns:
         string: repl definition of the peripheral
     """
-    core = kwargs['core']()
-    reader = kwargs['reader']()
-    writer = kwargs['writer']()
 
     # FIXME: Get litex to generate CSR region size into output information
     # currently only a base address is present
-    core['size'] = 0x100
-    reader['size'] = 0x100
-    writer['size'] = 0x100
+    peripheral = get_descriptor(csr, name)
+    core = get_descriptor(csr, 'sdcore', 0x100)
+    reader = get_descriptor(csr, 'sdblock2mem', 0x100)
+    writer = get_descriptor(csr, 'sdmem2block', 0x100)
 
     result = """
 mmc_controller: SD.LiteSDCard{} @ {{
@@ -368,7 +382,7 @@ mmc_controller: SD.LiteSDCard{} @ {{
     {};
     {}
 }}
-""".format('_CSR32' if configuration.constants['config_csr_data_width']['value'] == 32 else '',
+""".format('_CSR32' if csr['constants']['config_csr_data_width'] == 32 else '',
            generate_sysbus_registration(peripheral,
                                         skip_braces=True),
            generate_sysbus_registration(core,
@@ -410,14 +424,17 @@ plic: IRQControllers.PlatformLevelInterruptController @ {}
     return result
 
 
-def get_clock_frequency():
+def get_clock_frequency(csr):
     """
+    Args:
+        csr (dict): LiteX configuration
+
     Returns:
         int: system clock frequency
     """
     # in different LiteX versions this property
     # has different names
-    return configuration.constants['config_clock_frequency' if 'config_clock_frequency' in configuration.constants else 'system_clock_frequency']['value']
+    return csr['constants']['config_clock_frequency' if 'config_clock_frequency' in csr['constants'] else 'system_clock_frequency']
 
 
 peripherals_handlers = {
@@ -432,13 +449,11 @@ peripherals_handlers = {
         'model_CSR32': 'Timers.LiteX_Timer_CSR32',
         'properties': {
             'frequency':
-                lambda: get_clock_frequency()
+                lambda c: get_clock_frequency(c)
         }
     },
     'ethmac': {
         'handler': generate_ethmac,
-        'buffer': lambda: configuration.mem_regions['ethmac'],
-        'phy': lambda: configuration.peripherals['ethphy']
     },
     'cas': {
         'handler': generate_cas,
@@ -449,7 +464,7 @@ peripherals_handlers = {
         'model': 'Timers.LiteX_CPUTimer',
         'properties': {
             'frequency':
-                lambda: get_clock_frequency()
+                lambda c: get_clock_frequency(c)
         },
         'interrupts': {
             # IRQ #100 in Renode's VexRiscv model is mapped to Machine Timer Interrupt
@@ -481,9 +496,6 @@ peripherals_handlers = {
     },
     'sdphy': {
         'handler': generate_mmc,
-        'core': lambda: configuration.peripherals['sdcore'],
-        'reader': lambda: configuration.peripherals['sdblock2mem'],
-        'writer': lambda: configuration.peripherals['sdmem2block']
     },
     'spisdcard': {
         'handler': generate_peripheral,
@@ -501,10 +513,12 @@ def genereate_etherbone_bridge(name, address, port):
 """.format(name, hex(address), port)
 
 
-def generate_repl(etherbone_peripherals, autoalign):
+def generate_repl(csr, etherbone_peripherals, autoalign):
     """ Generates platform definition.
 
     Args:
+        csr (dict): LiteX configuration
+
         etherbone_peripherals (dict): collection of peripherals
             that should not be simulated directly in Renode,
             but connected to it over an etherbone bridge on
@@ -524,37 +538,43 @@ def generate_repl(etherbone_peripherals, autoalign):
     # to be a multiple of 4KB - this is a known limitation
     # (not a bug) and there are no plans to handle smaller
     # memory regions for now
-    for mem_region in filter_memory_regions(list(configuration.mem_regions.values()), alignment=0x1000, autoalign=autoalign):
+    memories = []
+    for m in csr['memories']:
+        x = dict(csr['memories'][m])
+        x['name'] = m
+        memories.append(x)
+
+    for mem_region in filter_memory_regions(memories, alignment=0x1000, autoalign=autoalign):
         result += generate_memory_region(mem_region)
 
     time_provider = None
-    if 'clint' in configuration.mem_regions:
-        result += generate_clint(configuration.mem_regions['clint'], configuration.constants['config_clock_frequency']['value'])
+    if 'clint' in csr['memories']:
+        result += generate_clint(csr['memories']['clint'], csr['constants']['config_clock_frequency'])
         time_provider = 'clint'
 
-    if 'plic' in configuration.mem_regions:
-        result += generate_plic(configuration.mem_regions['plic'])
+    if 'plic' in csr['memories']:
+        result += generate_plic(csr['memories']['plic'])
 
-    if not time_provider and 'cpu' in configuration.peripherals:
+    if not time_provider and 'cpu' in csr['csr_bases']:
         time_provider = 'cpu_timer'
 
-    result += generate_cpu(time_provider)
+    result += generate_cpu(csr, time_provider)
 
-    for name, peripheral in configuration.peripherals.items():
+    for name, address in csr['csr_bases'].items():
         if name not in peripherals_handlers:
             print('Skipping unsupported peripheral `{}` at {}'
-                  .format(name, hex(peripheral['address'])))
+                  .format(name, hex(address)))
             continue
 
         if name in etherbone_peripherals:
             # generate an etherbone bridge for the peripheral
             port = etherbone_peripherals[name]
-            result += genereate_etherbone_bridge(name, peripheral['address'], port)
+            result += genereate_etherbone_bridge(name, address, port)
             pass
         else:
             # generate an actual model of the peripheral
             h = peripherals_handlers[name]
-            result += h['handler'](peripheral, **h)
+            result += h['handler'](csr, name, **h)
 
     return result
 
@@ -577,7 +597,7 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
     """
     previous_region = None
 
-    raw_regions.sort(key=lambda x: x['address'])
+    raw_regions.sort(key=lambda x: x['base'])
     for r in raw_regions:
         if 'linker' in r['type']:
             print('Skipping linker region: {}'.format(r['name']))
@@ -593,13 +613,13 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
 
         if alignment is not None:
             size_mismatch = r['size'] % alignment
-            address_mismatch = r['address'] % alignment
+            address_mismatch = r['base'] % alignment
 
             if address_mismatch != 0:
                 if r['name'] in autoalign:
-                    r['original_address'] = r['address']
-                    r['address'] -= address_mismatch
-                    print('Re-aligning `{}` memory region base address from {} to {} due to limitations in Renode'.format(r['name'], hex(r['original_address']), hex(r['address'])))
+                    r['original_address'] = r['base']
+                    r['base'] -= address_mismatch
+                    print('Re-aligning `{}` memory region base address from {} to {} due to limitations in Renode'.format(r['name'], hex(r['original_address']), hex(r['base'])))
                 else:
                     print('Error: `{}` memory region base address ({}) is not aligned to {}. This configuration cannot be currently simulated in Renode'.format(r['name'], hex(r['size']), hex(alignment)))
                     sys.exit(1)
@@ -613,7 +633,7 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
                     print('Error: `{}` memory region size ({}) is not aligned to {}. This configuration cannot be currently simulated in Renode'.format(r['name'], hex(r['size']), hex(alignment)))
                     sys.exit(1)
 
-        if previous_region is not None and (previous_region['address'] + previous_region['size']) > (r['address'] + r['size']):
+        if previous_region is not None and (previous_region['base'] + previous_region['size']) > (r['base'] + r['size']):
             print("Error: detected overlaping memory regions: `{}` and `{}`".format(r['name'], previous_region['name']))
             sys.exit(1)
 
@@ -621,10 +641,11 @@ def filter_memory_regions(raw_regions, alignment=None, autoalign=[]):
         yield r
 
 
-def generate_resc(args, flash_binaries={}, tftp_binaries={}):
+def generate_resc(csr, args, flash_binaries={}, tftp_binaries={}):
     """ Generates platform definition.
 
     Args:
+        csr (dict): LiteX configuration
         args (object): configuration
         flash_binaries (dict): dictionary with paths and offsets of files
                                to load into flash
@@ -646,7 +667,7 @@ showAnalyzer sysbus.uart
 showAnalyzer sysbus.uart Antmicro.Renode.Analyzers.LoggingUartAnalyzer
 """.format(cpu_type, args.repl)
 
-    rom_base = configuration.mem_regions['rom']['address'] if 'rom' in configuration.mem_regions else None
+    rom_base = csr['memories']['rom']['base'] if 'rom' in csr['memories'] else None
     if rom_base is not None and args.bios_binary:
         # load LiteX BIOS to ROM
         result += """
@@ -682,14 +703,14 @@ connector Connect ethmac switch
 connector Connect host.tap switch
 """.format(args.configure_network)
     elif flash_binaries:
-        if 'flash_boot_address' not in configuration.constants:
+        if 'flash_boot_address' not in csr['constants']:
             print('Warning! There is no flash memory to load binaries to')
         else:
             # load binaries to spiflash to boot from there
 
             for offset in flash_binaries:
                 path = flash_binaries[offset]
-                flash_boot_address = int(configuration.constants['flash_boot_address']['value'], 0) + offset
+                flash_boot_address = int(csr['constants']['flash_boot_address'], 0) + offset
 
                 firmware_data = open(path, 'rb').read()
                 crc32 = zlib.crc32(firmware_data)
@@ -716,7 +737,7 @@ def print_or_save(filepath, lines):
             f.write(lines)
 
 
-def parse_flash_binaries(args):
+def parse_flash_binaries(csr, args):
     flash_binaries = {}
 
     if args.firmware_binary:
@@ -735,11 +756,11 @@ def parse_flash_binaries(args):
                 offset = int(offset_or_label, 0)
             except ValueError:
                 # ... if it didn't work, check constants
-                if offset_or_label in configuration.constants:
-                    offset = int(configuration.constants[offset_or_label]['value'], 0)
+                if offset_or_label in csr['constants']:
+                    offset = int(csr['constants'][offset_or_label], 0)
                 else:
                     print("Offset is in a wrong format. It should be either a number or one of the constants from the configuration file:")
-                    print("\n".join("\t{}".format(c) for c in configuration.constants.keys()))
+                    print("\n".join("\t{}".format(c) for c in csr['constants'].keys()))
                     sys.exit(1)
             
             flash_binaries[offset] = path
@@ -802,7 +823,7 @@ def check_etherbone_peripherals(peripherals):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('conf_file',
-                        help='CSV configuration generated by LiteX')
+                        help='JSON configuration generated by LiteX')
     parser.add_argument('--resc', action='store',
                         help='Output script file')
     parser.add_argument('--repl', action='store',
@@ -833,15 +854,15 @@ def parse_args():
 
 
 def main():
-    global configuration
     args = parse_args()
 
-    configuration = Configuration(args.conf_file)
+    with open(args.conf_file) as f:
+        csr = json.load(f)
 
     etherbone_peripherals = check_etherbone_peripherals(args.etherbone_peripherals)
 
     if args.repl:
-        print_or_save(args.repl, generate_repl(etherbone_peripherals, args.autoalign_memor_regions))
+        print_or_save(args.repl, generate_repl(csr, etherbone_peripherals, args.autoalign_memor_regions))
 
     if args.resc:
         if not args.repl:
