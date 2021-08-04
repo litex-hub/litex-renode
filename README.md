@@ -1,7 +1,7 @@
 # litex-renode
 Tools for using [Renode](http://renode.io) from [Antmicro](http://antmicro.com) with [LiteX](http://github.com/enjoy-digital/litex) for simulation.
 
-This repo hosts the parser of LiteX 'csr.csv' file generating scripts for Renode allowing to simulate the given configuration of the LiteX SoC.
+This repo hosts the parser of LiteX 'csr.json' file generating scripts for Renode allowing to simulate the given configuration of the LiteX SoC.
 
 ### Renode
 
@@ -26,13 +26,13 @@ For details, see [the github repository](https://github.com/enjoy-digital/litex)
 
 ## Usage
 
-First, build your LiteX platform with `--csr-csv csr.csv` switch, e.g.:
+First, build your LiteX platform with `--csr-json csr.json` switch, e.g.:
 
-    python3 litex/boards/targets/arty.py --cpu-type vexriscv --with-ethernet --csr-csv csr.csv
+    python3 litex/boards/targets/arty.py --cpu-type vexriscv --with-ethernet --csr-json csr.json
 
 Now, use the generated configuration file as an input for `generate-renode-scripts.py`:
 
-    ./generate-renode-scripts.py csr.csv \
+    ./generate-renode-scripts.py csr.json \
         --resc litex.resc \
         --repl litex.repl
         --bios-binary soc_ethernetsoc_arty/software/bios/bios.bin
