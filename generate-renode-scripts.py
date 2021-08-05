@@ -660,7 +660,7 @@ def generate_resc(csr, args, flash_binaries={}, tftp_binaries={}):
         string: platform defition containing all supported peripherals
                 and memory regions
     """
-    cpu_type, _ = get_cpu_type()
+    cpu_type, _ = get_cpu_type(csr)
 
     result = """
 using sysbus
@@ -873,10 +873,10 @@ def main():
             print("REPL is needed when generating RESC file")
             sys.exit(1)
         else:
-            flash_binaries = parse_flash_binaries(args)
+            flash_binaries = parse_flash_binaries(csr, args)
             tftp_binaries = check_tftp_binaries(args)
             
-            print_or_save(args.resc, generate_resc(args,
+            print_or_save(args.resc, generate_resc(csr, args,
                                                    flash_binaries,
                                                    tftp_binaries))
 
